@@ -134,6 +134,21 @@ slam-asr-reimplement/
 
 ---
 
+## ☁️ Google Colab'ta Çalıştırma / Running on Google Colab
+
+Proje, Google Colab (ücretsiz T4 veya ücretli A100/V100) ortamında sorunsuz çalışacak şekilde optimize edilmiştir:
+- Hazır Jupyter Notebook: [`slam_asr_colab.ipynb`](file:///Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/slam_asr_colab.ipynb)
+- **T4 GPU (16 GB VRAM) Desteği:** 
+  - `config/colab_t4_tinyllama.yaml`: Ultra hafif (~3.8 GB VRAM), son derece hızlı eğitim.
+  - `config/colab_t4_vicuna_4bit.yaml`: Vicuna-7B modelini 4-bit NormalFloat (NF4 / bitsandbytes) kuantizasyon ile T4 içerisine sığdırır (~6.5 GB VRAM).
+
+### Colab Adımları:
+1. Google Colab'ı açın ve **Runtime -> Change runtime type -> T4 GPU** seçeneğini seçin.
+2. Bu depodaki [`slam_asr_colab.ipynb`](file:///Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/slam_asr_colab.ipynb) dosyasını Colab'a yükleyin (veya deponuzu `!git clone` ile çekin).
+3. Hücreleri sırasıyla çalıştırarak ortamı kurun, testleri koşturun ve eğitimi başlatın.
+
+---
+
 ## 🚀 Kurulum / Installation
 
 ```bash

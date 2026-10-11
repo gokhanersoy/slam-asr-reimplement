@@ -1,0 +1,39 @@
+# Google Colab Free Tier (T4 GPU) Ultra-Fast Prototyping Setup
+# HuBERT-base + TinyLlama-1.1B-Chat
+# VRAM footprint: ~3.8 GB, very fast training step time
+
+model:
+  speech_encoder_name_or_path: "facebook/hubert-base-ls960"
+  llm_name_or_path: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  encoder_dim: 768
+  llm_dim: 2048
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Transcribe speech to text."
+  torch_dtype: "float16"
+
+data:
+  train_manifest: "data/sample_train.jsonl"
+  val_manifest: "data/sample_val.jsonl"
+  test_manifest: "data/sample_val.jsonl"
+  sampling_rate: 16000
+  is_whisper: false
+  batch_size: 6
+  num_workers: 2
+
+training:
+  output_dir: "./outputs/slam_asr_colab_tinyllama"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 50
+  max_steps: 2000
+  gradient_accumulation_steps: 1
+  logging_steps: 20
+  eval_steps: 100
+  save_steps: 200
+  early_stopping_patience: 5
+  fp16: true

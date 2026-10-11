@@ -1,0 +1,40 @@
+# Google Colab Free Tier (T4 GPU - 16 GB VRAM) Optimized Setup
+# Uses HuBERT-large + Vicuna-7B in 4-bit NormalFloat (NF4) quantization
+# VRAM footprint: ~6.5 GB (fits easily inside Colab T4!)
+
+model:
+  speech_encoder_name_or_path: "facebook/hubert-large-ls960-ft"
+  llm_name_or_path: "lmsys/vicuna-7b-v1.5"
+  encoder_dim: 1024
+  llm_dim: 4096
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Transcribe speech to text."
+  torch_dtype: "float16"
+  load_in_4bit: true
+
+data:
+  train_manifest: "data/sample_train.jsonl"
+  val_manifest: "data/sample_val.jsonl"
+  test_manifest: "data/sample_val.jsonl"
+  sampling_rate: 16000
+  is_whisper: false
+  batch_size: 4
+  num_workers: 2
+
+training:
+  output_dir: "./outputs/slam_asr_colab_vicuna"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 100
+  max_steps: 5000
+  gradient_accumulation_steps: 2
+  logging_steps: 25
+  eval_steps: 250
+  save_steps: 500
+  early_stopping_patience: 5
+  fp16: true

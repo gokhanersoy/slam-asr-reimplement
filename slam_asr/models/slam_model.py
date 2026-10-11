@@ -41,6 +41,9 @@ class SLAMASRConfig:
     user_prefix: str = "USER: "
     assistant_prefix: str = " ASSISTANT: "
     torch_dtype: str = "float32"  # 'float32', 'float16', 'bfloat16'
+    load_in_4bit: bool = False
+    load_in_8bit: bool = False
+    device_map: Optional[str] = None
 
 
 class SLAM_ASR(nn.Module):
@@ -92,9 +95,20 @@ class SLAM_ASR(nn.Module):
                 "bfloat16": torch.bfloat16,
             }
             torch_dtype = dtype_map.get(config.torch_dtype, torch.float32)
+            llm_kwargs = {"torch_dtype": torch_dtype}
+
+            if config.load_in_4bit:
+                llm_kwargs["load_in_4bit"] = True
+                llm_kwargs["device_map"] = config.device_map or "auto"
+            elif config.load_in_8bit:
+                llm_kwargs["load_in_8bit"] = True
+                llm_kwargs["device_map"] = config.device_map or "auto"
+            elif config.device_map:
+                llm_kwargs["device_map"] = config.device_map
+
             self.language_model = AutoModelForCausalLM.from_pretrained(
                 config.llm_name_or_path,
-                torch_dtype=torch_dtype,
+                **llm_kwargs,
             )
 
         llm_dim = config.llm_dim or self.language_model.config.hidden_size
@@ -169,7 +183,6 @@ class SLAM_ASR(nn.Module):
             attention_mask: (batch_size, max_seq_len)
             labels: (batch_size, max_seq_len) or None (during inference)
         """
-        device = speech_embeds.device
         batch_size = speech_embeds.size(0)
 
         # Normalize prompt input
@@ -181,6 +194,9 @@ class SLAM_ASR(nn.Module):
             prompt_list = prompts
 
         embed_tokens = self.language_model.get_input_embeddings()
+        embed_weight = getattr(embed_tokens, "weight", None)
+        device = embed_weight.device if embed_weight is not None else speech_embeds.device
+        speech_embeds = speech_embeds.to(device)
 
         sample_embeds_list = []
         sample_labels_list = []

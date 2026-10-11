@@ -38,7 +38,12 @@ def main():
 
     print(f"[*] Loading SLAM-ASR on {device}...")
     model_config = SLAMASRConfig(**model_cfg_dict)
-    model = SLAM_ASR(config=model_config).to(device)
+    model = SLAM_ASR(config=model_config)
+    if not getattr(model_config, "load_in_4bit", False) and not getattr(model_config, "load_in_8bit", False):
+        model = model.to(device)
+    else:
+        model.speech_encoder = model.speech_encoder.to(device)
+        model.projector = model.projector.to(device)
 
     # Load projector checkpoint
     ckpt_path = args.checkpoint

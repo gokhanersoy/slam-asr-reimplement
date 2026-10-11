@@ -47,7 +47,12 @@ class ASRTrainer:
     ):
         self.args = args or TrainingArguments()
         self.device = torch.device(self.args.device)
-        self.model = model.to(self.device)
+        if getattr(model.config, "load_in_4bit", False) or getattr(model.config, "load_in_8bit", False):
+            model.speech_encoder = model.speech_encoder.to(self.device)
+            model.projector = model.projector.to(self.device)
+            self.model = model
+        else:
+            self.model = model.to(self.device)
         self.train_dataloader = train_dataloader
         self.eval_dataloader = eval_dataloader
 
