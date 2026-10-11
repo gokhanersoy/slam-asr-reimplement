@@ -73,12 +73,24 @@ def main():
     print(f"[*] Processing audio: {args.audio}")
     speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device)  # (1, samples) or (1, mels, 3000)
 
+    use_amp = (model_config.torch_dtype in ("float16", "bfloat16")) and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if model_config.torch_dtype == "bfloat16" else torch.float16
+
     print(f"[*] Transcribing (beam_size={args.beam_size})...")
-    transcription = model.generate(
-        speech_inputs=speech_tensor,
-        prompts=[args.prompt],
-        num_beams=args.beam_size,
-    )[0]
+    with torch.no_grad():
+        if use_amp:
+            with torch.cuda.amp.autocast(dtype=amp_dtype):
+                transcription = model.generate(
+                    speech_inputs=speech_tensor,
+                    prompts=[args.prompt],
+                    num_beams=args.beam_size,
+                )[0]
+        else:
+            transcription = model.generate(
+                speech_inputs=speech_tensor,
+                prompts=[args.prompt],
+                num_beams=args.beam_size,
+            )[0]
 
     print("\n" + "=" * 50)
     print(f"Audio:          {args.audio}")

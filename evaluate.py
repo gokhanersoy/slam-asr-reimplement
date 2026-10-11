@@ -96,6 +96,9 @@ def main():
     references = []
     results = []
 
+    use_amp = (model_config.torch_dtype in ("float16", "bfloat16")) and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if model_config.torch_dtype == "bfloat16" else torch.float16
+
     print(f"[*] Evaluating {len(test_dataset)} samples with beam_size={args.beam_size}...")
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Evaluating"):
@@ -106,12 +109,21 @@ def main():
                 else None
             )
 
-            preds = model.generate(
-                speech_inputs=speech_inputs,
-                speech_attention_mask=speech_mask,
-                prompts=batch["prompts"],
-                num_beams=args.beam_size,
-            )
+            if use_amp:
+                with torch.cuda.amp.autocast(dtype=amp_dtype):
+                    preds = model.generate(
+                        speech_inputs=speech_inputs,
+                        speech_attention_mask=speech_mask,
+                        prompts=batch["prompts"],
+                        num_beams=args.beam_size,
+                    )
+            else:
+                preds = model.generate(
+                    speech_inputs=speech_inputs,
+                    speech_attention_mask=speech_mask,
+                    prompts=batch["prompts"],
+                    num_beams=args.beam_size,
+                )
 
             for key, pred, ref in zip(batch["keys"], preds, batch["transcripts"]):
                 hypotheses.append(pred)

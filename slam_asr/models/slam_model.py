@@ -146,6 +146,21 @@ class SLAM_ASR(nn.Module):
         """Return list of trainable parameters (by default, only projector)."""
         return [p for p in self.parameters() if p.requires_grad]
 
+    @property
+    def llm_dtype(self) -> torch.dtype:
+        """Get the expected computation dtype for the LLM inputs."""
+        if hasattr(self.language_model, "dtype") and self.language_model.dtype not in (torch.int8, torch.uint8):
+            return self.language_model.dtype
+        embed = self.language_model.get_input_embeddings()
+        if hasattr(embed, "weight") and embed.weight.dtype not in (torch.int8, torch.uint8):
+            return embed.weight.dtype
+        dtype_map = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        return dtype_map.get(getattr(self.config, "torch_dtype", "float32"), torch.float32)
+
     def encode_speech(
         self,
         speech_inputs: torch.Tensor,
@@ -184,6 +199,7 @@ class SLAM_ASR(nn.Module):
             labels: (batch_size, max_seq_len) or None (during inference)
         """
         batch_size = speech_embeds.size(0)
+        target_dtype = self.llm_dtype
 
         # Normalize prompt input
         if prompts is None:
@@ -196,7 +212,7 @@ class SLAM_ASR(nn.Module):
         embed_tokens = self.language_model.get_input_embeddings()
         embed_weight = getattr(embed_tokens, "weight", None)
         device = embed_weight.device if embed_weight is not None else speech_embeds.device
-        speech_embeds = speech_embeds.to(device)
+        speech_embeds = speech_embeds.to(device=device, dtype=target_dtype)
 
         sample_embeds_list = []
         sample_labels_list = []
@@ -210,7 +226,7 @@ class SLAM_ASR(nn.Module):
             add_special_tokens=True,
             return_tensors="pt",
         ).input_ids.to(device)
-        user_prefix_embeds = embed_tokens(user_prefix_ids)[0]  # (p1_len, llm_dim)
+        user_prefix_embeds = embed_tokens(user_prefix_ids)[0].to(dtype=target_dtype, device=device)  # (p1_len, llm_dim)
         p1_len = user_prefix_embeds.size(0)
 
         for i in range(batch_size):
@@ -220,6 +236,7 @@ class SLAM_ASR(nn.Module):
                 cur_speech_embeds = speech_embeds[i, :valid_speech_len]
             else:
                 cur_speech_embeds = speech_embeds[i]
+            cur_speech_embeds = cur_speech_embeds.to(dtype=target_dtype, device=device)
             s_len = cur_speech_embeds.size(0)
 
             # 2. Prompt + assistant prefix: " <P> ASSISTANT: "
@@ -229,7 +246,7 @@ class SLAM_ASR(nn.Module):
                 add_special_tokens=False,
                 return_tensors="pt",
             ).input_ids.to(device)
-            prompt_embeds = embed_tokens(prompt_ids)[0]
+            prompt_embeds = embed_tokens(prompt_ids)[0].to(dtype=target_dtype, device=device)
             p2_len = prompt_embeds.size(0)
 
             if is_training and transcripts is not None:
@@ -240,7 +257,7 @@ class SLAM_ASR(nn.Module):
                     add_special_tokens=False,
                     return_tensors="pt",
                 ).input_ids.to(device)[0]
-                target_embeds = embed_tokens(target_ids)
+                target_embeds = embed_tokens(target_ids).to(dtype=target_dtype, device=device)
                 t_len = target_ids.size(0)
 
                 # Concatenate embeddings: [prefix, speech, prompt_suffix, target]
@@ -274,7 +291,7 @@ class SLAM_ASR(nn.Module):
         llm_dim = sample_embeds_list[0].size(1)
 
         padded_embeds = torch.zeros(
-            batch_size, max_len, llm_dim, dtype=speech_embeds.dtype, device=device
+            batch_size, max_len, llm_dim, dtype=target_dtype, device=device
         )
         attention_mask = torch.zeros(
             batch_size, max_len, dtype=torch.long, device=device
@@ -327,6 +344,9 @@ class SLAM_ASR(nn.Module):
             is_training=True,
         )
 
+        target_dtype = self.llm_dtype
+        inputs_embeds = inputs_embeds.to(dtype=target_dtype)
+
         outputs = self.language_model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -373,6 +393,9 @@ class SLAM_ASR(nn.Module):
             prompts=prompts,
             is_training=False,
         )
+
+        target_dtype = self.llm_dtype
+        inputs_embeds = inputs_embeds.to(dtype=target_dtype)
 
         generated_ids = self.language_model.generate(
             inputs_embeds=inputs_embeds,
