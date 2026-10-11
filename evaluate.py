@@ -63,6 +63,11 @@ def main():
     print(f"[*] Loading projector weights from: {ckpt_path}")
     state_dict = torch.load(ckpt_path, map_location=device)
     model.projector.load_state_dict(state_dict)
+
+    # Align projector dtype with language model dtype if using half-precision
+    if hasattr(model.language_model, "dtype") and model.language_model.dtype in [torch.float16, torch.bfloat16]:
+        model.projector.to(dtype=model.language_model.dtype)
+
     model.eval()
 
     # Data loading
