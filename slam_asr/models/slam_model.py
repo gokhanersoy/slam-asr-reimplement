@@ -195,15 +195,8 @@ class SLAM_ASR(nn.Module):
 
         embed_tokens = self.language_model.get_input_embeddings()
         embed_weight = getattr(embed_tokens, "weight", None)
-        target_device = embed_weight.device if embed_weight is not None else speech_embeds.device
-        target_dtype = embed_weight.dtype if embed_weight is not None else speech_embeds.dtype
-
-        # If LLM has a specified dtype (e.g. torch.float16), align with it
-        if hasattr(self.language_model, "dtype") and isinstance(self.language_model.dtype, torch.dtype):
-            target_dtype = self.language_model.dtype
-
-        device = target_device
-        speech_embeds = speech_embeds.to(device=target_device, dtype=target_dtype)
+        device = embed_weight.device if embed_weight is not None else speech_embeds.device
+        speech_embeds = speech_embeds.to(device)
 
         sample_embeds_list = []
         sample_labels_list = []
@@ -217,7 +210,7 @@ class SLAM_ASR(nn.Module):
             add_special_tokens=True,
             return_tensors="pt",
         ).input_ids.to(device)
-        user_prefix_embeds = embed_tokens(user_prefix_ids)[0].to(dtype=target_dtype)  # (p1_len, llm_dim)
+        user_prefix_embeds = embed_tokens(user_prefix_ids)[0]  # (p1_len, llm_dim)
         p1_len = user_prefix_embeds.size(0)
 
         for i in range(batch_size):
@@ -236,7 +229,7 @@ class SLAM_ASR(nn.Module):
                 add_special_tokens=False,
                 return_tensors="pt",
             ).input_ids.to(device)
-            prompt_embeds = embed_tokens(prompt_ids)[0].to(dtype=target_dtype)
+            prompt_embeds = embed_tokens(prompt_ids)[0]
             p2_len = prompt_embeds.size(0)
 
             if is_training and transcripts is not None:
@@ -247,7 +240,7 @@ class SLAM_ASR(nn.Module):
                     add_special_tokens=False,
                     return_tensors="pt",
                 ).input_ids.to(device)[0]
-                target_embeds = embed_tokens(target_ids).to(dtype=target_dtype)
+                target_embeds = embed_tokens(target_ids)
                 t_len = target_ids.size(0)
 
                 # Concatenate embeddings: [prefix, speech, prompt_suffix, target]
@@ -281,7 +274,7 @@ class SLAM_ASR(nn.Module):
         llm_dim = sample_embeds_list[0].size(1)
 
         padded_embeds = torch.zeros(
-            batch_size, max_len, llm_dim, dtype=target_dtype, device=device
+            batch_size, max_len, llm_dim, dtype=speech_embeds.dtype, device=device
         )
         attention_mask = torch.zeros(
             batch_size, max_len, dtype=torch.long, device=device
@@ -380,10 +373,6 @@ class SLAM_ASR(nn.Module):
             prompts=prompts,
             is_training=False,
         )
-
-        llm_dtype = getattr(self.language_model, "dtype", None)
-        if llm_dtype is not None and isinstance(llm_dtype, torch.dtype):
-            inputs_embeds = inputs_embeds.to(dtype=llm_dtype)
 
         generated_ids = self.language_model.generate(
             inputs_embeds=inputs_embeds,
