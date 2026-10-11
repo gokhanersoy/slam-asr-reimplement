@@ -1,0 +1,38 @@
+# SLAM-ASR WavLM Setup: WavLM-Large + Vicuna-7B-v1.5
+# Section 4.3 & Table 5 of arXiv:2402.08846
+
+model:
+  speech_encoder_name_or_path: "microsoft/wavlm-large"
+  llm_name_or_path: "lmsys/vicuna-7b-v1.5"
+  encoder_dim: 1024
+  llm_dim: 4096
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Transcribe speech to text."
+  torch_dtype: "bfloat16"
+
+data:
+  train_manifest: "data/train.jsonl"
+  val_manifest: "data/dev-other.jsonl"
+  test_manifest: "data/test-clean.jsonl"
+  sampling_rate: 16000
+  is_whisper: false
+  batch_size: 6
+  num_workers: 4
+
+training:
+  output_dir: "./outputs/slam_asr_wavlm_vicuna"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 1000
+  max_steps: 100000
+  gradient_accumulation_steps: 1
+  logging_steps: 50
+  eval_steps: 1000
+  save_steps: 2000
+  early_stopping_patience: 5
+  bf16: true
