@@ -366,6 +366,8 @@ class SLAM_ASR(nn.Module):
         prompts: Optional[Union[str, List[str]]] = None,
         num_beams: int = 4,
         max_new_tokens: int = 256,
+        repetition_penalty: float = 1.15,
+        no_repeat_ngram_size: int = 4,
         temperature: float = 1.0,
         do_sample: bool = False,
         **kwargs,
@@ -378,6 +380,8 @@ class SLAM_ASR(nn.Module):
             prompts: Optional prompt string or list.
             num_beams: Beam search width (default: 4, per paper Section 3.4).
             max_new_tokens: Maximum tokens to generate.
+            repetition_penalty: Penalty for repeating tokens (default: 1.15).
+            no_repeat_ngram_size: Avoid repeating n-grams of this size (default: 4).
 
         Returns:
             List of generated hypothesis transcript strings.
@@ -402,6 +406,8 @@ class SLAM_ASR(nn.Module):
             attention_mask=attention_mask,
             num_beams=num_beams,
             max_new_tokens=max_new_tokens,
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
             temperature=temperature,
             do_sample=do_sample,
             pad_token_id=self.tokenizer.pad_token_id,

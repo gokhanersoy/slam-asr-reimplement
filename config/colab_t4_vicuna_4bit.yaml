@@ -18,9 +18,9 @@ model:
   load_in_4bit: true
 
 data:
-  train_manifest: "data/sample_train.jsonl"
-  val_manifest: "data/sample_val.jsonl"
-  test_manifest: "data/sample_val.jsonl"
+  train_manifest: "data/colab_train.jsonl"
+  val_manifest: "data/colab_val.jsonl"
+  test_manifest: "data/colab_val.jsonl"
   sampling_rate: 16000
   is_whisper: false
   batch_size: 4

@@ -22,6 +22,8 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=None, help="Override learning rate")
     parser.add_argument("--max_steps", type=int, default=None, help="Override max steps")
     parser.add_argument("--device", type=str, default=None, help="Override device (cuda, mps, cpu)")
+    parser.add_argument("--train_manifest", type=str, default=None, help="Override train manifest path")
+    parser.add_argument("--val_manifest", type=str, default=None, help="Override validation manifest path")
     return parser.parse_args()
 
 
@@ -65,7 +67,7 @@ def main():
     )
 
     # Datasets
-    train_manifest = data_cfg.get("train_manifest")
+    train_manifest = cli_args.train_manifest or data_cfg.get("train_manifest")
     if not train_manifest or not os.path.exists(train_manifest):
         raise FileNotFoundError(
             f"Train manifest not found at: {train_manifest}. Please create data JSONL or check config."
@@ -78,7 +80,7 @@ def main():
     )
 
     val_dataset = None
-    val_manifest = data_cfg.get("val_manifest")
+    val_manifest = cli_args.val_manifest or data_cfg.get("val_manifest")
     if val_manifest and os.path.exists(val_manifest):
         val_dataset = ASRDataset(
             data_source=val_manifest,
