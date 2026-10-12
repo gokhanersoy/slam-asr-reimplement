@@ -33,4 +33,3 @@ training:
   eval_steps: 20
   save_steps: 25
   early_stopping_patience: 3
-  device: "cpu"

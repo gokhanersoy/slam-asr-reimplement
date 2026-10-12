@@ -69,9 +69,18 @@ def main():
     # Datasets
     train_manifest = cli_args.train_manifest or data_cfg.get("train_manifest")
     if not train_manifest or not os.path.exists(train_manifest):
-        raise FileNotFoundError(
-            f"Train manifest not found at: {train_manifest}. Please create data JSONL or check config."
-        )
+        if train_manifest == "data/colab_train.jsonl" and os.path.exists("data/sample_train.jsonl"):
+            print(
+                f"[*] Notice: '{train_manifest}' not found yet. Falling back to toy dataset 'data/sample_train.jsonl'.\n"
+                f"    (If you intend to train on LibriSpeech, please run Step 5 first to download the data!)"
+            )
+            train_manifest = "data/sample_train.jsonl"
+        else:
+            raise FileNotFoundError(
+                f"Train manifest not found at: '{train_manifest}'.\n"
+                f"  - If running toy test (Step 4), run: python scripts/create_toy_dataset.py\n"
+                f"  - If running real training (Step 6), make sure Step 5 (LibriSpeech prep) finished."
+            )
 
     train_dataset = ASRDataset(
         data_source=train_manifest,
@@ -81,6 +90,9 @@ def main():
 
     val_dataset = None
     val_manifest = cli_args.val_manifest or data_cfg.get("val_manifest")
+    if val_manifest and not os.path.exists(val_manifest) and os.path.exists("data/sample_val.jsonl"):
+        val_manifest = "data/sample_val.jsonl"
+
     if val_manifest and os.path.exists(val_manifest):
         val_dataset = ASRDataset(
             data_source=val_manifest,
