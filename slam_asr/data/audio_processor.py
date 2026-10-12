@@ -4,6 +4,7 @@ Handles loading, resampling to 16 kHz, normalization, and optional
 30-second padding & log-Mel spectrogram extraction for Whisper models.
 """
 
+import os
 from typing import Optional, Tuple, Union
 import torch
 import torchaudio
