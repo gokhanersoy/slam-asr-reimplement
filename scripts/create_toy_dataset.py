@@ -41,7 +41,7 @@ def main():
         generate_wav(wav_path, duration_sec=dur, freq=freq)
         records.append({
             "key": key,
-            "source": wav_path,
+            "source": os.path.join("data", "toy_audio", f"{key}.wav"),
             "target": transcript,
             "prompt": "Transcribe speech to text.",
         })

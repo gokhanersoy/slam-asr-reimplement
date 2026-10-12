@@ -41,7 +41,22 @@ class AudioProcessor:
     def load_audio(self, audio_path_or_array: Union[str, np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Load audio from file path or convert from numpy/tensor to 1D float tensor at 16 kHz."""
         if isinstance(audio_path_or_array, str):
-            waveform, sr = torchaudio.load(audio_path_or_array)
+            resolved_path = audio_path_or_array
+            if not os.path.exists(resolved_path):
+                # Handle cross-machine absolute paths (e.g. from local Mac into Colab)
+                if "data/" in resolved_path:
+                    candidate = resolved_path[resolved_path.find("data/"):]
+                    if os.path.exists(candidate):
+                        resolved_path = candidate
+                if not os.path.exists(resolved_path):
+                    filename = os.path.basename(resolved_path)
+                    for folder in ["data/toy_audio", "data", "data/colab_audio"]:
+                        candidate = os.path.join(folder, filename)
+                        if os.path.exists(candidate):
+                            resolved_path = candidate
+                            break
+
+            waveform, sr = torchaudio.load(resolved_path)
             # Convert multi-channel to mono
             if waveform.size(0) > 1:
                 waveform = torch.mean(waveform, dim=0, keepdim=True)

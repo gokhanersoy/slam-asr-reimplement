@@ -1,4 +1,4 @@
-{"key": "toy_1", "source": "/Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/data/toy_audio/toy_1.wav", "target": "the quick brown fox jumps over the lazy dog", "prompt": "Transcribe speech to text."}
-{"key": "toy_2", "source": "/Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/data/toy_audio/toy_2.wav", "target": "automatic speech recognition with large language models", "prompt": "Transcribe speech to text."}
-{"key": "toy_3", "source": "/Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/data/toy_audio/toy_3.wav", "target": "an embarrassingly simple approach for speech recognition", "prompt": "Transcribe speech to text."}
-{"key": "toy_4", "source": "/Users/gokhanersoy/Documents/GitHub/slam-asr-reimplement/data/toy_audio/toy_4.wav", "target": "modal alignment with a trainable linear projector", "prompt": "Transcribe speech to text."}
+{"key": "toy_1", "source": "data/toy_audio/toy_1.wav", "target": "the quick brown fox jumps over the lazy dog", "prompt": "Transcribe speech to text."}
+{"key": "toy_2", "source": "data/toy_audio/toy_2.wav", "target": "automatic speech recognition with large language models", "prompt": "Transcribe speech to text."}
+{"key": "toy_3", "source": "data/toy_audio/toy_3.wav", "target": "an embarrassingly simple approach for speech recognition", "prompt": "Transcribe speech to text."}
+{"key": "toy_4", "source": "data/toy_audio/toy_4.wav", "target": "modal alignment with a trainable linear projector", "prompt": "Transcribe speech to text."}
