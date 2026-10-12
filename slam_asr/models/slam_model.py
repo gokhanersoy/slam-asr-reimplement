@@ -98,10 +98,17 @@ class SLAM_ASR(nn.Module):
             llm_kwargs = {"torch_dtype": torch_dtype}
 
             if config.load_in_4bit:
-                llm_kwargs["load_in_4bit"] = True
+                from transformers import BitsAndBytesConfig
+                llm_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch_dtype if torch_dtype != torch.float32 else torch.float16,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                )
                 llm_kwargs["device_map"] = config.device_map or "auto"
             elif config.load_in_8bit:
-                llm_kwargs["load_in_8bit"] = True
+                from transformers import BitsAndBytesConfig
+                llm_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
                 llm_kwargs["device_map"] = config.device_map or "auto"
             elif config.device_map:
                 llm_kwargs["device_map"] = config.device_map
