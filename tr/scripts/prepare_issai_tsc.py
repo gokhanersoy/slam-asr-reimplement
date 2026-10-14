@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Data preparation script for the ISSAI Turkish Speech Corpus (ISSAI_TSC_218).
 
-Downloads or extracts ISSAI_TSC_218.tar.gz from Hugging Face:
-  https://huggingface.co/datasets/issai/Turkish_Speech_Corpus
+Dataset structure inside ISSAI_TSC_218.tar.gz:
+  - Dev/   : Paired audio and transcript files: 1.wav, 1.txt, 2.wav, 2.txt, ...
+  - Test/  : Paired audio and transcript files: 1.wav, 1.txt, 2.wav, 2.txt, ...
+  - Train/ : Paired audio and transcript files: 1.wav, 1.txt, 2.wav, 2.txt, ...
 
-Parses transcripts, verifies audio files, applies Turkish text normalization,
-and generates JSONL manifests for SLAM-ASR training, validation, and evaluation:
+Parses each split directory, reads transcripts from matching .txt files,
+applies accurate Turkish text normalization (I -> ı, İ -> i, ç, ğ, ö, ş, ü),
+calculates audio durations, and generates JSONL manifests for SLAM-ASR:
   - data/issai_tsc/train.jsonl
   - data/issai_tsc/val.jsonl
   - data/issai_tsc/test.jsonl
@@ -53,34 +56,16 @@ def parse_args():
         help="Optional Hugging Face access token for faster/authenticated download",
     )
     parser.add_argument(
-        "--train_ratio",
-        type=float,
-        default=0.90,
-        help="Ratio of data assigned to train set (default: 0.90)",
-    )
-    parser.add_argument(
-        "--val_ratio",
-        type=float,
-        default=0.05,
-        help="Ratio of data assigned to val set (default: 0.05)",
-    )
-    parser.add_argument(
-        "--test_ratio",
-        type=float,
-        default=0.05,
-        help="Ratio of data assigned to test set (default: 0.05)",
-    )
-    parser.add_argument(
         "--max_samples",
         type=int,
         default=None,
-        help="Optional maximum number of samples to process (useful for quick prototyping)",
+        help="Optional maximum number of samples per split (useful for quick prototyping / subsets)",
     )
     parser.add_argument(
         "--seed",
         type=int,
         default=42,
-        help="Random seed for deterministic train/val/test splitting",
+        help="Random seed for deterministic behavior",
     )
     return parser.parse_args()
 
@@ -100,7 +85,7 @@ def download_from_hf(output_dir: str, token: Optional[str] = None) -> str:
         print(f"[*] Download completed: {tar_path}")
         return tar_path
     except ImportError:
-        print("[!] 'huggingface_hub' is not installed. Installing or using curl fallback...")
+        print("[!] 'huggingface_hub' is not installed. Installing and retrying...")
         os.system("pip install -q huggingface_hub")
         from huggingface_hub import hf_hub_download
         tar_path = hf_hub_download(
@@ -121,7 +106,7 @@ def extract_archive(tar_path: str, extract_dir: str):
         print(f"[*] Archive already extracted in: {extract_dir}")
         return
 
-    print(f"[*] Extracting '{tar_path}' to '{extract_dir}'...")
+    print(f"[*] Extracting '{tar_path}' to '{extract_dir}' (this may take a few minutes)...")
     with tarfile.open(tar_path, "r:gz") as tar:
         tar.extractall(path=extract_dir)
 
@@ -131,7 +116,7 @@ def extract_archive(tar_path: str, extract_dir: str):
 
 
 def get_wav_duration(wav_path: str) -> float:
-    """Read duration from WAV header directly without loading entire audio array."""
+    """Read duration from WAV header directly without loading entire audio array into memory."""
     try:
         with wave.open(wav_path, "rb") as f:
             frames = f.getnframes()
@@ -141,87 +126,142 @@ def get_wav_duration(wav_path: str) -> float:
         return 0.0
 
 
-def find_metadata_files(extract_dir: str) -> List[str]:
-    """Search for TSV / CSV / TXT transcript files inside the extracted directory."""
+def locate_split_directories(extract_dir: str) -> Dict[str, str]:
+    """Find Train, Dev, and Test directories inside extract_dir.
+
+    ISSAI_TSC_218 contains:
+      - Train/ (or train/)
+      - Dev/   (or dev/ or val/)
+      - Test/  (or test/)
+    """
+    splits: Dict[str, str] = {}
+    for root, dirs, _ in os.walk(extract_dir):
+        for d in dirs:
+            d_lower = d.lower()
+            if d_lower == "train" and "train" not in splits:
+                splits["train"] = os.path.join(root, d)
+            elif d_lower in ("dev", "val", "validation") and "val" not in splits:
+                splits["val"] = os.path.join(root, d)
+            elif d_lower == "test" and "test" not in splits:
+                splits["test"] = os.path.join(root, d)
+    return splits
+
+
+def scan_paired_directory(
+    dir_path: str,
+    split_name: str,
+    max_samples: Optional[int] = None,
+) -> List[Dict[str, any]]:
+    """Scan directory containing paired audio and transcript files:
+
+    e.g. 1.wav, 1.txt, 2.wav, 2.txt, ...
+    """
+    samples: List[Dict[str, any]] = []
+    if not os.path.isdir(dir_path):
+        return samples
+
+    # Collect all audio files in the folder (or subfolders)
+    audio_files: List[str] = []
+    for root, _, files in os.walk(dir_path):
+        for f in files:
+            if f.endswith((".wav", ".flac")) and not f.startswith("."):
+                audio_files.append(os.path.join(root, f))
+
+    # Sort numerically if names are digits (1.wav, 2.wav), otherwise alphabetically
+    def sort_key(p: str):
+        stem = os.path.splitext(os.path.basename(p))[0]
+        return int(stem) if stem.isdigit() else stem
+
+    audio_files.sort(key=sort_key)
+    print(f"[*] Found {len(audio_files):,d} audio files in [{split_name.upper()}] ({dir_path})")
+
+    if max_samples is not None and len(audio_files) > max_samples:
+        print(f"    --> Subsetting [{split_name.upper()}] to first {max_samples:,d} samples (--max_samples).")
+        audio_files = audio_files[:max_samples]
+
+    skipped_no_txt = 0
+    skipped_empty_txt = 0
+
+    for wav_path in audio_files:
+        stem = os.path.splitext(wav_path)[0]
+        txt_path = stem + ".txt"
+
+        # Check for transcript file
+        if not os.path.isfile(txt_path):
+            skipped_no_txt += 1
+            continue
+
+        try:
+            with open(txt_path, "r", encoding="utf-8", errors="replace") as tf:
+                raw_text = tf.read().strip()
+        except Exception:
+            skipped_empty_txt += 1
+            continue
+
+        clean_text = normalize_text_turkish(raw_text)
+        if not clean_text:
+            skipped_empty_txt += 1
+            continue
+
+        dur = get_wav_duration(wav_path)
+        base_stem = os.path.splitext(os.path.basename(wav_path))[0]
+        key = f"issai_{split_name}_{base_stem}"
+
+        abs_audio = os.path.abspath(wav_path)
+        samples.append({
+            "key": key,
+            "audio_filepath": abs_audio,
+            "source": abs_audio,
+            "text": clean_text,
+            "target": clean_text,
+            "duration": dur,
+        })
+
+    if skipped_no_txt > 0 or skipped_empty_txt > 0:
+        print(f"    (Skipped: {skipped_no_txt} without .txt, {skipped_empty_txt} with empty text)")
+
+    return samples
+
+
+def find_tsv_fallback_files(extract_dir: str) -> List[str]:
+    """Fallback: Search for TSV / CSV metadata files if paired .txt files aren't found."""
     candidates = []
     for root, _, files in os.walk(extract_dir):
         for f in files:
-            if f.endswith((".tsv", ".csv", ".txt")) and not f.startswith("."):
+            if f.endswith((".tsv", ".csv")) and not f.startswith("."):
                 lower_f = f.lower()
-                if any(k in lower_f for k in ["transcript", "metadata", "train", "val", "test", "dev", "data"]):
+                if any(k in lower_f for k in ["transcript", "metadata", "train", "val", "test", "dev"]):
                     candidates.append(os.path.join(root, f))
     return candidates
 
 
-def parse_transcript_file(filepath: str, extract_dir: str) -> List[Dict[str, any]]:
-    """Parse TSV or CSV transcript file and link to audio files."""
+def parse_tsv_fallback(filepath: str, extract_dir: str) -> List[Dict[str, any]]:
+    """Fallback TSV parser."""
     samples = []
-    delimiter = "\t" if filepath.endswith(".tsv") else ("," if filepath.endswith(".csv") else "\t")
-
+    delimiter = "\t" if filepath.endswith(".tsv") else ","
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        # Detect whether first line is a header
-        first_line = f.readline()
-        f.seek(0)
-        has_header = any(h in first_line.lower() for h in ["audio", "path", "file", "text", "transcript", "sentence"])
-
         reader = csv.reader(f, delimiter=delimiter)
-        audio_col_idx = 0
-        text_col_idx = 1
-
-        if has_header:
-            header = [h.strip().lower() for h in next(reader)]
-            for idx, col in enumerate(header):
-                if any(k in col for k in ["audio", "path", "file", "wav"]):
-                    audio_col_idx = idx
-                elif any(k in col for k in ["text", "transcript", "sentence", "label"]):
-                    text_col_idx = idx
-
-        for row_idx, row in enumerate(reader):
-            if not row or len(row) <= max(audio_col_idx, text_col_idx):
+        for row in reader:
+            if len(row) < 2:
                 continue
-            raw_audio = row[audio_col_idx].strip()
-            raw_text = row[text_col_idx].strip()
+            raw_audio, raw_text = row[0].strip(), row[1].strip()
             if not raw_audio or not raw_text:
                 continue
-
-            # Resolve audio file location
-            audio_path = None
-            candidate_paths = [
-                raw_audio,
-                os.path.join(os.path.dirname(filepath), raw_audio),
-                os.path.join(extract_dir, raw_audio),
-                os.path.join(extract_dir, "Audios", raw_audio),
-                os.path.join(extract_dir, "audios", raw_audio),
-                os.path.join(extract_dir, "Wav", raw_audio),
-                os.path.join(extract_dir, "wav", raw_audio),
-            ]
-            if not raw_audio.endswith((".wav", ".flac", ".mp3")):
-                candidate_paths.extend([p + ".wav" for p in candidate_paths])
-
-            for p in candidate_paths:
-                if os.path.isfile(p):
-                    audio_path = os.path.abspath(p)
-                    break
-
-            if audio_path is None:
+            audio_path = os.path.join(extract_dir, raw_audio)
+            if not os.path.isfile(audio_path):
                 continue
-
             clean_text = normalize_text_turkish(raw_text)
-            if not clean_text:
-                continue
-
             dur = get_wav_duration(audio_path)
             key = os.path.splitext(os.path.basename(audio_path))[0]
-
+            abs_p = os.path.abspath(audio_path)
             samples.append({
                 "key": key,
-                "audio_filepath": audio_path,
-                "source": audio_path,
+                "audio_filepath": abs_p,
+                "source": abs_p,
                 "text": clean_text,
                 "target": clean_text,
                 "duration": dur,
             })
-
     return samples
 
 
@@ -253,51 +293,41 @@ def main():
     extract_dir = os.path.join(output_dir, "extracted")
     extract_archive(tar_path, extract_dir)
 
-    # 3. Locate and Parse Metadata
-    meta_files = find_metadata_files(extract_dir)
-    print(f"[*] Found {len(meta_files)} transcript/metadata candidate file(s):")
-    for mf in meta_files:
-        print(f"    • {os.path.relpath(mf, output_dir)}")
-
-    all_samples = []
-    # If standard split files exist (train.tsv, dev.tsv, test.tsv)
-    split_samples = {"train": [], "val": [], "test": []}
-    has_predefined_splits = False
-
-    for mf in meta_files:
-        base_mf = os.path.basename(mf).lower()
-        if "train" in base_mf:
-            s = parse_transcript_file(mf, extract_dir)
-            split_samples["train"].extend(s)
-            has_predefined_splits = True
-        elif any(k in base_mf for k in ["dev", "val"]):
-            s = parse_transcript_file(mf, extract_dir)
-            split_samples["val"].extend(s)
-            has_predefined_splits = True
-        elif "test" in base_mf:
-            s = parse_transcript_file(mf, extract_dir)
-            split_samples["test"].extend(s)
-            has_predefined_splits = True
+    # 3. Locate Train, Dev, and Test Directories (ISSAI_TSC_218 Structure)
+    splits = locate_split_directories(extract_dir)
+    print("\n[*] Located ISSAI_TSC_218 Dataset Split Directories:")
+    for name in ["train", "val", "test"]:
+        d_path = splits.get(name)
+        if d_path:
+            print(f"    • [{name.upper():5s}]: {os.path.relpath(d_path, output_dir)}")
         else:
-            s = parse_transcript_file(mf, extract_dir)
-            all_samples.extend(s)
+            print(f"    • [{name.upper():5s}]: (Not found under '{extract_dir}')")
 
-    if not has_predefined_splits or (len(split_samples["train"]) == 0 and len(all_samples) > 0):
-        # Create deterministic split from all_samples
-        print(f"[*] Creating {int(args.train_ratio*100)}/{int(args.val_ratio*100)}/{int(args.test_ratio*100)} split from {len(all_samples)} samples...")
-        random.shuffle(all_samples)
+    split_samples: Dict[str, List[Dict[str, any]]] = {"train": [], "val": [], "test": []}
 
-        if args.max_samples and len(all_samples) > args.max_samples:
-            print(f"[*] Limiting total samples to --max_samples={args.max_samples}")
-            all_samples = all_samples[:args.max_samples]
+    # Primary Scanner: Paired wav & txt files (1.wav, 1.txt)
+    for split_name in ["train", "val", "test"]:
+        if split_name in splits:
+            samples = scan_paired_directory(
+                dir_path=splits[split_name],
+                split_name=split_name,
+                max_samples=args.max_samples,
+            )
+            split_samples[split_name] = samples
 
-        n_total = len(all_samples)
-        n_train = int(n_total * args.train_ratio)
-        n_val = int(n_total * args.val_ratio)
-
-        split_samples["train"] = all_samples[:n_train]
-        split_samples["val"] = all_samples[n_train : n_train + n_val]
-        split_samples["test"] = all_samples[n_train + n_val :]
+    # Fallback if paired scan produced no files
+    if sum(len(s) for s in split_samples.values()) == 0:
+        print("[!] No paired .wav and .txt files found in split folders. Checking for TSV/CSV metadata fallback...")
+        tsv_files = find_tsv_fallback_files(extract_dir)
+        for tf in tsv_files:
+            b = os.path.basename(tf).lower()
+            s_list = parse_tsv_fallback(tf, extract_dir)
+            if "train" in b:
+                split_samples["train"].extend(s_list)
+            elif any(k in b for k in ["dev", "val"]):
+                split_samples["val"].extend(s_list)
+            elif "test" in b:
+                split_samples["test"].extend(s_list)
 
     # 4. Save JSONL Manifests
     train_manifest = os.path.join(output_dir, "train.jsonl")
@@ -310,9 +340,9 @@ def main():
         "test": (test_manifest, split_samples["test"]),
     }
 
-    print("\n" + "=" * 65)
-    print("[*] ISSAI TURKISH SPEECH CORPUS MANIFEST SUMMARY")
-    print("=" * 65)
+    print("\n" + "=" * 70)
+    print("[*] ISSAI TURKISH SPEECH CORPUS (ISSAI_TSC_218) MANIFEST SUMMARY")
+    print("=" * 70)
 
     for split_name, (m_path, samples) in manifest_map.items():
         total_sec = sum(s.get("duration", 0.0) for s in samples)
@@ -324,11 +354,15 @@ def main():
 
         print(f"  [{split_name.upper():5s}] {len(samples):7,d} utterances | {total_hours:6.2f} hours -> {m_path}")
 
-    print("=" * 65)
+    print("=" * 70)
     if len(split_samples["train"]) > 0:
         sample = split_samples["train"][0]
-        print(f"[*] Sample Manifest Entry:\n    Key:      {sample['key']}\n    Audio:    {sample['audio_filepath']}\n    Text:     {sample['text']}\n    Duration: {sample['duration']}s\n")
-    print("[*] Preparation completed successfully.")
+        print(f"[*] Sample Manifest Entry:\n"
+              f"    Key:      {sample['key']}\n"
+              f"    Audio:    {sample['audio_filepath']}\n"
+              f"    Text:     {sample['text']}\n"
+              f"    Duration: {sample['duration']}s\n")
+    print("[*] ISSAI Turkish Speech Corpus manifests prepared successfully.")
 
 
 if __name__ == "__main__":
