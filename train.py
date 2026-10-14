@@ -12,6 +12,7 @@ from slam_asr.data.audio_processor import AudioProcessor
 from slam_asr.data.dataset import ASRDataset
 from slam_asr.data.collator import ASRDataCollator
 from slam_asr.train.trainer import ASRTrainer, TrainingArguments
+from slam_asr.utils.device_utils import resolve_auto_hyperparameters
 
 
 def parse_args():
@@ -24,6 +25,7 @@ def parse_args():
     parser.add_argument("--device", type=str, default=None, help="Override device (cuda, mps, cpu)")
     parser.add_argument("--train_manifest", type=str, default=None, help="Override train manifest path")
     parser.add_argument("--val_manifest", type=str, default=None, help="Override validation manifest path")
+    parser.add_argument("--auto_device", action="store_true", default=False, help="Auto-optimize hyperparameters for active GPU/hardware")
     return parser.parse_args()
 
 
@@ -40,7 +42,16 @@ def main():
     data_cfg = cfg.get("data", {})
     train_cfg_dict = cfg.get("training", {})
 
-    # Overrides
+    # Automatically resolve hardware-aware hyperparameters based on detected GPU / VRAM
+    model_cfg_dict, data_cfg, train_cfg_dict = resolve_auto_hyperparameters(
+        model_cfg=model_cfg_dict,
+        data_cfg=data_cfg,
+        train_cfg=train_cfg_dict,
+        cli_args=cli_args,
+        verbose=True,
+    )
+
+    # CLI Overrides (explicit user arguments always take precedence)
     if cli_args.output_dir:
         train_cfg_dict["output_dir"] = cli_args.output_dir
     if cli_args.learning_rate:
@@ -50,7 +61,7 @@ def main():
     if cli_args.device:
         train_cfg_dict["device"] = cli_args.device
 
-    batch_size = cli_args.batch_size or data_cfg.get("batch_size", 6)
+    batch_size = cli_args.batch_size or data_cfg.get("batch_size", 4)
 
     print(f"[*] Initializing SLAM-ASR with config: {cli_args.config}")
     model_config = SLAMASRConfig(**model_cfg_dict)

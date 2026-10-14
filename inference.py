@@ -8,6 +8,7 @@ import torch
 
 from slam_asr.models.slam_model import SLAM_ASR, SLAMASRConfig
 from slam_asr.data.audio_processor import AudioProcessor
+from slam_asr.utils.device_utils import resolve_auto_hyperparameters
 
 
 def parse_args():
@@ -32,6 +33,15 @@ def main():
 
     model_cfg_dict = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
+
+    # Resolve hardware-aware hyperparameters if auto
+    model_cfg_dict, data_cfg, _ = resolve_auto_hyperparameters(
+        model_cfg=model_cfg_dict,
+        data_cfg=data_cfg,
+        train_cfg={},
+        cli_args=args,
+        verbose=False,
+    )
 
     device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     device = torch.device(device_str)

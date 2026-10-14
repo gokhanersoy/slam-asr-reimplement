@@ -1,0 +1,42 @@
+# Hardware-Adaptive SLAM-ASR Configuration (arXiv:2402.08846)
+# Automatically adapts to the active GPU (T4, L4, A100, H100, G4, or CPU)
+# Setting fields to "auto" dynamically configures precision, batch size,
+# 4-bit quantization, and workers for optimal convergence and memory usage.
+
+model:
+  speech_encoder_name_or_path: "facebook/hubert-large-ls960-ft"
+  llm_name_or_path: "lmsys/vicuna-7b-v1.5"
+  encoder_dim: 1024
+  llm_dim: 4096
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Transcribe speech to text."
+  torch_dtype: "auto"        # Auto: bfloat16 on Ampere/Ada/Hopper, float16 on Turing T4
+  load_in_4bit: "auto"       # Auto: False on A100/H100 (>=34GB), True on T4/L4 (<34GB)
+
+data:
+  train_manifest: "data/colab_train.jsonl"
+  val_manifest: "data/colab_val.jsonl"
+  test_manifest: "data/colab_val.jsonl"
+  sampling_rate: 16000
+  is_whisper: false
+  batch_size: "auto"         # Auto: 16 on H100, 8 on A100/L4, 4 on T4
+  num_workers: "auto"        # Auto: optimal for CPU core count
+
+training:
+  output_dir: "./outputs/slam_asr_adaptive_vicuna"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 1000
+  max_steps: 3000
+  gradient_accumulation_steps: "auto" # Auto: 1 on H100, 2 on A100/L4, 4 on T4 (effective batch: 16)
+  logging_steps: 25
+  eval_steps: 250
+  save_steps: 500
+  early_stopping_patience: 10
+  fp16: "auto"
+  bf16: "auto"

@@ -14,6 +14,7 @@ from slam_asr.data.audio_processor import AudioProcessor
 from slam_asr.data.dataset import ASRDataset
 from slam_asr.data.collator import ASRDataCollator
 from slam_asr.utils.metrics import compute_wer, compute_cer, normalize_text_librispeech
+from slam_asr.utils.device_utils import resolve_auto_hyperparameters
 
 
 def parse_args():
@@ -23,7 +24,7 @@ def parse_args():
     parser.add_argument("--manifest", type=str, default=None, help="Path to test manifest (defaults to config test_manifest)")
     parser.add_argument("--output_file", type=str, default="eval_results.jsonl", help="Path to save predictions")
     parser.add_argument("--beam_size", type=int, default=4, help="Beam size for generation (default: 4)")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for evaluation")
+    parser.add_argument("--batch_size", type=int, default=None, help="Batch size for evaluation (default: auto)")
     parser.add_argument("--device", type=str, default=None, help="Device to run on (cuda, mps, cpu)")
     return parser.parse_args()
 
@@ -39,6 +40,17 @@ def main():
 
     model_cfg_dict = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
+
+    # Resolve hardware-aware hyperparameters if auto
+    model_cfg_dict, data_cfg, _ = resolve_auto_hyperparameters(
+        model_cfg=model_cfg_dict,
+        data_cfg=data_cfg,
+        train_cfg={},
+        cli_args=args,
+        verbose=False,
+    )
+
+    eval_batch_size = args.batch_size or data_cfg.get("batch_size", 4)
 
     device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     device = torch.device(device_str)
@@ -86,10 +98,10 @@ def main():
     collator = ASRDataCollator(is_whisper=is_whisper)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=args.batch_size,
+        batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collator,
-        num_workers=2,
+        num_workers=data_cfg.get("num_workers", 2),
     )
 
     hypotheses = []
