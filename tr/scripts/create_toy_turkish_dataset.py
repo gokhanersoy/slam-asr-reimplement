@@ -60,7 +60,9 @@ def main():
         entry = {
             "key": key,
             "audio_filepath": os.path.abspath(wav_path),
+            "source": os.path.abspath(wav_path),
             "text": text,
+            "target": text,
             "duration": duration,
         }
 

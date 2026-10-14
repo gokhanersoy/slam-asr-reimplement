@@ -60,7 +60,21 @@ class ASRDataset(Dataset):
         item = self.examples[idx]
 
         # Extract audio source
-        audio_source = item.get("source") or item.get("audio") or item.get("file")
+        audio_source = (
+            item.get("audio_filepath")
+            or item.get("audio_path")
+            or item.get("audio")
+            or item.get("source")
+            or item.get("file")
+            or item.get("path")
+            or item.get("wav")
+        )
+        if audio_source is None:
+            raise KeyError(
+                f"Dataset item at index {idx} does not contain an audio key! "
+                f"Available keys in item: {list(item.keys())}. "
+                f"Expected one of: 'audio_filepath', 'audio', 'source', 'file', 'path', 'wav'."
+            )
         if isinstance(audio_source, dict) and "array" in audio_source:
             # Hugging Face Audio feature dict
             audio_tensor = self.audio_processor.process(audio_source["array"])

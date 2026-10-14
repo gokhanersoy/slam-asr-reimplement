@@ -216,7 +216,9 @@ def parse_transcript_file(filepath: str, extract_dir: str) -> List[Dict[str, any
             samples.append({
                 "key": key,
                 "audio_filepath": audio_path,
+                "source": audio_path,
                 "text": clean_text,
+                "target": clean_text,
                 "duration": dur,
             })
 
