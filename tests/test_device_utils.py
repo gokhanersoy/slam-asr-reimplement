@@ -71,6 +71,31 @@ class TestDeviceUtils(unittest.TestCase):
         self.assertTrue(rec["fp16"])
         self.assertFalse(rec["bf16"])
 
+    def test_rtx_a4000_tier_recommendations(self):
+        rec = get_recommended_hyperparameters(
+            vram_gb=16.0,
+            compute_capability=(8, 6),
+            supports_bf16=True,
+            device_type="cuda",
+        )
+        self.assertTrue(rec["load_in_4bit"])
+        self.assertEqual(rec["torch_dtype"], "bfloat16")
+        self.assertEqual(rec["batch_size"], 4)
+        self.assertEqual(rec["gradient_accumulation_steps"], 4)
+        self.assertTrue(rec["bf16"])
+        self.assertFalse(rec["fp16"])
+
+    def test_mps_tier_recommendations(self):
+        rec = get_recommended_hyperparameters(
+            vram_gb=16.0,
+            device_type="mps",
+        )
+        self.assertFalse(rec["load_in_4bit"])
+        self.assertEqual(rec["torch_dtype"], "float16")
+        self.assertEqual(rec["batch_size"], 2)
+        self.assertFalse(rec["fp16"])
+        self.assertFalse(rec["bf16"])
+
     def test_cpu_tier_recommendations(self):
         rec = get_recommended_hyperparameters(
             vram_gb=0.0,

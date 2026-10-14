@@ -26,6 +26,12 @@ def get_device_specs(device_idx: int = 0) -> Dict[str, Any]:
         "cpu_count": os.cpu_count() or 2,
     }
 
+    try:
+        sys_ram_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        specs["ram_gb"] = round(sys_ram_bytes / (1024 ** 3), 2)
+    except (AttributeError, ValueError):
+        specs["ram_gb"] = 0.0
+
     if torch is not None and torch.cuda.is_available():
         specs["device_type"] = "cuda"
         specs["device_name"] = torch.cuda.get_device_name(device_idx)
@@ -41,7 +47,8 @@ def get_device_specs(device_idx: int = 0) -> Dict[str, Any]:
     elif torch is not None and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         specs["device_type"] = "mps"
         specs["device_name"] = "Apple Silicon (MPS)"
-        specs["vram_gb"] = 0.0
+        specs["vram_gb"] = specs["ram_gb"]
+        specs["supports_fp16"] = True
 
     return specs
 
@@ -150,9 +157,25 @@ def get_recommended_hyperparameters(
             "notes": "Minimal 4-bit footprint with batch size 2.",
         }
 
-    # CPU or Apple Silicon (MPS)
+    # Apple Silicon (MPS)
+    if device_type == "mps":
+        return {
+            "profile": "Apple Silicon (MPS Unified Memory)",
+            "torch_dtype": "float16",
+            "load_in_4bit": False,
+            "load_in_8bit": False,
+            "batch_size": 2,
+            "gradient_accumulation_steps": 8,
+            "eval_batch_size": 2,
+            "fp16": False,
+            "bf16": False,
+            "num_workers": 0,
+            "notes": "Native float16 on Apple Silicon MPS. 4-bit quantization disabled (requires CUDA).",
+        }
+
+    # CPU Environment
     return {
-        "profile": "CPU / MPS Environment",
+        "profile": "CPU Environment",
         "torch_dtype": "float32",
         "load_in_4bit": False,
         "load_in_8bit": False,
@@ -162,7 +185,7 @@ def get_recommended_hyperparameters(
         "fp16": False,
         "bf16": False,
         "num_workers": 0,
-        "notes": "Standard float32 on CPU / MPS.",
+        "notes": "Standard float32 on CPU.",
     }
 
 
