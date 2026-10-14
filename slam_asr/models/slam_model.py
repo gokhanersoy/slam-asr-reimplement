@@ -312,10 +312,16 @@ class SLAM_ASR(nn.Module):
 
         for i in range(batch_size):
             cur_len = sample_embeds_list[i].size(0)
-            padded_embeds[i, :cur_len] = sample_embeds_list[i]
-            attention_mask[i, :cur_len] = 1
-            if padded_labels is not None:
-                padded_labels[i, :cur_len] = sample_labels_list[i]
+            if not is_training:
+                # Left-padding for decoder autoregressive generation (prevents prompt offset/corruption)
+                padded_embeds[i, -cur_len:] = sample_embeds_list[i]
+                attention_mask[i, -cur_len:] = 1
+            else:
+                # Right-padding for training loss calculation
+                padded_embeds[i, :cur_len] = sample_embeds_list[i]
+                attention_mask[i, :cur_len] = 1
+                if padded_labels is not None:
+                    padded_labels[i, :cur_len] = sample_labels_list[i]
 
         return padded_embeds, attention_mask, padded_labels
 
