@@ -1,0 +1,41 @@
+# Rapid Toy Debug Configuration for Common Voice Turkish SLAM-ASR
+# Uses lightweight models for instant pipeline and forward-backward validation.
+
+model:
+  speech_encoder_name_or_path: "openai/whisper-tiny"
+  llm_name_or_path: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  encoder_dim: 384
+  llm_dim: 2048
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 1024
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Konuşmayı metne dönüştürün."
+  torch_dtype: "float32"
+  load_in_4bit: false
+
+data:
+  train_manifest: "data/sample_train_tr.jsonl"
+  val_manifest: "data/sample_val_tr.jsonl"
+  test_manifest: "data/sample_val_tr.jsonl"
+  sampling_rate: 16000
+  is_whisper: true
+  whisper_mel_bins: 80
+  batch_size: 2
+  num_workers: 0
+
+training:
+  output_dir: "./outputs/slam_asr_cv_turkish_toy"
+  learning_rate: 0.0005
+  weight_decay: 0.0
+  warmup_steps: 10
+  max_steps: 50
+  gradient_accumulation_steps: 1
+  logging_steps: 5
+  eval_steps: 25
+  save_steps: 25
+  early_stopping_patience: 3
+  fp16: false
+  bf16: false
