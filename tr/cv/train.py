@@ -83,7 +83,7 @@ def main():
         if os.path.exists("data/sample_train_tr.jsonl"):
             print(
                 f"[*] Notice: '{train_manifest}' not found yet. Falling back to Turkish toy dataset 'data/sample_train_tr.jsonl'.\n"
-                f"    (To train on full ISSAI TSC data, please run 'python scripts/prepare_issai_tsc.py --download' first!)"
+                f"    (To train on full Mozilla Common Voice data, please run 'python scripts/prepare_common_voice.py --download' first!)"
             )
             train_manifest = "data/sample_train_tr.jsonl"
         elif os.path.exists("data/sample_train.jsonl"):
@@ -92,7 +92,7 @@ def main():
             raise FileNotFoundError(
                 f"Train manifest not found at: '{train_manifest}'.\n"
                 f"  - For quick testing, run: python scripts/create_toy_turkish_dataset.py\n"
-                f"  - For real training, run: python scripts/prepare_issai_tsc.py --download"
+                f"  - For real training, run: python scripts/prepare_common_voice.py --download"
             )
 
     train_dataset = ASRDataset(

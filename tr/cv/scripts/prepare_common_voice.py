@@ -104,26 +104,43 @@ def fetch_download_url_from_mdc(dataset_id: str, api_key: str) -> Tuple[str, str
         "User-Agent": "MozillaDataCollectiveClient/1.0",
     }
 
-    print(f"[*] Requesting download token from Mozilla Data Collective API...")
+    print(f"[*] Requesting presigned download URL from Mozilla Data Collective API...")
     print(f"    URL: {url}")
 
-    # First attempt: POST request
-    req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 405:  # Method Not Allowed, fallback to GET
-            req_get = urllib.request.Request(url, headers=headers, method="GET")
-            with urllib.request.urlopen(req_get) as resp:
+    data = None
+    # 1. Try urllib POST with empty body or empty JSON
+    for body_data in [b"{}", b""]:
+        try:
+            req = urllib.request.Request(url, data=body_data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-        elif e.code in (401, 403):
-            raise PermissionError(
-                f"MDC API Authentication failed (HTTP {e.code}). Please ensure your MDC_API_KEY is valid "
-                f"and you have accepted the dataset terms at https://mozilladatacollective.com"
-            ) from e
-        else:
-            raise RuntimeError(f"MDC API returned HTTP error {e.code}: {e.read().decode('utf-8')}") from e
+                break
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise PermissionError(
+                    f"MDC API Authentication failed (HTTP {e.code}). Please ensure your MDC_API_KEY is valid "
+                    f"and you have accepted the dataset terms at https://mozilladatacollective.com"
+                ) from e
+            continue
+        except Exception:
+            continue
+
+    # 2. If urllib failed, try curl as a robust fallback (exactly matching MDC docs)
+    if data is None:
+        try:
+            import subprocess
+            curl_cmd = [
+                "curl", "-sS", "-X", "POST", url,
+                "-H", f"Authorization: Bearer {api_key}",
+                "-H", "Content-Type: application/json",
+            ]
+            res = subprocess.run(curl_cmd, capture_output=True, text=True, check=True)
+            data = json.loads(res.stdout)
+        except Exception:
+            pass
+
+    if data is None:
+        raise RuntimeError(f"Could not retrieve download URL from MDC API endpoint: {url}")
 
     download_url = data.get("downloadUrl") or data.get("url")
     filename = data.get("filename") or f"common_voice_{dataset_id}.tar.gz"
@@ -137,55 +154,79 @@ def fetch_download_url_from_mdc(dataset_id: str, api_key: str) -> Tuple[str, str
 def download_file_with_progress(url: str, dest_path: str):
     """Download file with chunking and progress logging."""
     print(f"[*] Downloading dataset to: {dest_path}")
+    temp_path = dest_path + ".tmp"
     req = urllib.request.Request(url, headers={"User-Agent": "MozillaDataCollectiveClient/1.0"})
 
-    with urllib.request.urlopen(req) as resp, open(dest_path, "wb") as out_file:
-        total_size = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        chunk_size = 8 * 1024 * 1024  # 8 MB chunks
-        last_percent = -1
+    try:
+        with urllib.request.urlopen(req) as resp, open(temp_path, "wb") as out_file:
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            chunk_size = 8 * 1024 * 1024  # 8 MB chunks
+            last_percent = -1
 
-        while True:
-            chunk = resp.read(chunk_size)
-            if not chunk:
-                break
-            out_file.write(chunk)
-            downloaded += len(chunk)
-            if total_size > 0:
-                percent = int(downloaded * 100 / total_size)
-                if percent != last_percent and percent % 5 == 0:
-                    last_percent = percent
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0:
+                    percent = int(downloaded * 100 / total_size)
+                    if percent != last_percent and percent % 5 == 0:
+                        last_percent = percent
+                        mb_down = downloaded / (1024 * 1024)
+                        mb_total = total_size / (1024 * 1024)
+                        print(f"    Progress: {percent}% ({mb_down:.1f} MB / {mb_total:.1f} MB)")
+                else:
                     mb_down = downloaded / (1024 * 1024)
-                    mb_total = total_size / (1024 * 1024)
-                    print(f"    Progress: {percent}% ({mb_down:.1f} MB / {mb_total:.1f} MB)")
+                    if int(mb_down) % 50 == 0:
+                        print(f"    Downloaded: {mb_down:.1f} MB")
 
-    print(f"[*] Download completed successfully: {dest_path}")
+        os.replace(temp_path, dest_path)
+        print(f"[*] Download completed successfully: {dest_path}")
+    except Exception as e:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise e
 
 
 def download_from_mdc(output_dir: str, dataset_id: str, api_key: str) -> str:
-    """Download Common Voice archive via datacollective library or direct REST API."""
+    """Download Common Voice archive via direct REST API (recommended) or datacollective SDK."""
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1. Try official datacollective package if available
+    # 1. Primary Method: Direct REST API (Streaming with progress bar and exact destination)
+    try:
+        print("[*] Connecting to Mozilla Data Collective REST API...")
+        download_url, filename = fetch_download_url_from_mdc(dataset_id, api_key)
+        dest_path = os.path.join(output_dir, filename)
+
+        if os.path.isfile(dest_path) and os.path.getsize(dest_path) > 1024 * 1024:
+            print(f"[*] Archive already exists at: {dest_path}")
+            return dest_path
+
+        download_file_with_progress(download_url, dest_path)
+        return dest_path
+    except Exception as rest_err:
+        print(f"[!] REST API download encountered an issue: {rest_err}")
+
+    # 2. Secondary Fallback: Official datacollective SDK if installed
     try:
         import datacollective
-        print("[*] 'datacollective' package detected. Using official SDK...")
+        print("[*] Attempting fallback via official 'datacollective' SDK...")
         os.environ["MDC_API_KEY"] = api_key
-        tar_path = datacollective.download_dataset(dataset_id, download_dir=output_dir)
+        tar_path = datacollective.download_dataset(dataset_id)
+        print(f"[*] Download completed via SDK to: {tar_path}")
         return tar_path
-    except ImportError:
-        pass
-
-    # 2. Direct REST API via requests or urllib
-    download_url, filename = fetch_download_url_from_mdc(dataset_id, api_key)
-    dest_path = os.path.join(output_dir, filename)
-
-    if os.path.isfile(dest_path) and os.path.getsize(dest_path) > 1024 * 1024:
-        print(f"[*] Archive already exists at: {dest_path}")
-        return dest_path
-
-    download_file_with_progress(download_url, dest_path)
-    return dest_path
+    except Exception as sdk_err:
+        raise RuntimeError(
+            f"Failed to download Common Voice dataset from MDC.\n"
+            f"  • REST API error: {rest_err}\n"
+            f"  • SDK error: {sdk_err}\n"
+            f"Please verify your MDC_API_KEY and ensure you accepted the dataset terms on https://mozilladatacollective.com"
+        ) from rest_err
 
 
 def extract_archive(tar_path: str, extract_dir: str):
