@@ -1,10 +1,10 @@
-# Turkish SLAM-ASR: Whisper-Small + Trendyol-LLM-7b-chat
+# Turkish SLAM-ASR: Whisper-Large-v3 + Trendyol-LLM-7b-chat
 # Utilizing Trendyol's native Turkish instruction-tuned LLM
 
 model:
-  speech_encoder_name_or_path: "openai/whisper-small"
+  speech_encoder_name_or_path: "openai/whisper-large-v3"
   llm_name_or_path: "Trendyol/Trendyol-LLM-7b-chat-v1.0"
-  encoder_dim: 768
+  encoder_dim: 1280
   llm_dim: 4096
   downsample_rate: 5
   projector_type: "linear"
@@ -22,7 +22,7 @@ data:
   test_manifest: "data/issai_tsc/test.jsonl"
   sampling_rate: 16000
   is_whisper: true
-  whisper_mel_bins: 80
+  whisper_mel_bins: 128
   batch_size: 4
   num_workers: 4
 
