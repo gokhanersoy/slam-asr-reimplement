@@ -367,7 +367,14 @@ def parse_common_voice_tsv(
             if not clean_text:
                 continue
 
+            # Speech utterance sanity bounds: Common Voice clips are <= 30 seconds
+            # Filter out corrupted rows with runaway text length (> 80 words or > 400 chars)
+            if len(clean_text.split()) > 80 or len(clean_text) > 400:
+                continue
+
             dur = get_audio_duration(audio_path)
+            if dur > 30.0:
+                continue
             stem = os.path.splitext(os.path.basename(audio_path))[0]
             key = f"cv_{split_name}_{stem}"
 

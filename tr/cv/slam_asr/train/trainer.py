@@ -200,6 +200,9 @@ class ASRTrainer:
         if self.eval_dataloader is None:
             return 0.0
 
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         self.model.eval()
         total_eval_loss = 0.0
         total_batches = 0
@@ -221,6 +224,7 @@ class ASRTrainer:
                         speech_attention_mask=speech_attention_mask,
                         transcripts=transcripts,
                         prompts=prompts,
+                        return_logits=False,
                     )
             else:
                 outputs = self.model(
@@ -228,11 +232,16 @@ class ASRTrainer:
                     speech_attention_mask=speech_attention_mask,
                     transcripts=transcripts,
                     prompts=prompts,
+                    return_logits=False,
                 )
 
             total_eval_loss += outputs["loss"].item()
             total_batches += 1
 
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        self.model.train()
         return total_eval_loss / max(1, total_batches)
 
     def save_checkpoint(self, tag: str):

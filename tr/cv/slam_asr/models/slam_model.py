@@ -264,6 +264,12 @@ class SLAM_ASR(nn.Module):
                     add_special_tokens=False,
                     return_tensors="pt",
                 ).input_ids.to(device)[0]
+
+                # Safeguard: cap transcript tokens to prevent corrupted/abnormally long rows from causing OOM
+                max_target_len = getattr(self.config, "max_target_positions", 256)
+                if target_ids.size(0) > max_target_len:
+                    target_ids = target_ids[:max_target_len]
+
                 target_embeds = embed_tokens(target_ids).to(dtype=target_dtype, device=device)
                 t_len = target_ids.size(0)
 
@@ -331,6 +337,7 @@ class SLAM_ASR(nn.Module):
         speech_attention_mask: Optional[torch.Tensor] = None,
         transcripts: Optional[List[str]] = None,
         prompts: Optional[Union[str, List[str]]] = None,
+        return_logits: bool = False,
     ) -> dict:
         """Forward pass during training.
 
@@ -339,11 +346,12 @@ class SLAM_ASR(nn.Module):
             speech_attention_mask: Optional speech mask.
             transcripts: List of target transcript strings for the batch.
             prompts: Optional prompt or list of prompts (default: "Transcribe speech to text.").
+            return_logits: Whether to retain and return full logits (saves massive VRAM when False).
 
         Returns:
             dict containing:
                 loss: Cross-entropy loss computed strictly on transcript tokens.
-                logits: Output logits from the LLM.
+                logits: Output logits from the LLM (or None if return_logits=False).
         """
         speech_embeds, speech_mask = self.encode_speech(
             speech_inputs, speech_attention_mask
@@ -368,7 +376,7 @@ class SLAM_ASR(nn.Module):
 
         return {
             "loss": outputs.loss,
-            "logits": outputs.logits,
+            "logits": outputs.logits if return_logits else None,
         }
 
     @torch.no_grad()

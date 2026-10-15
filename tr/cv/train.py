@@ -3,6 +3,10 @@
 
 import argparse
 import os
+
+# Prevent CUDA memory fragmentation
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import yaml
 import torch
 from torch.utils.data import DataLoader
@@ -131,9 +135,10 @@ def main():
 
     val_loader = None
     if val_dataset is not None:
+        val_batch_size = data_cfg.get("eval_batch_size") or max(1, batch_size // 2)
         val_loader = DataLoader(
             val_dataset,
-            batch_size=batch_size,
+            batch_size=val_batch_size,
             shuffle=False,
             collate_fn=collator,
             num_workers=num_workers,
