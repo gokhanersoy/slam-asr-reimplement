@@ -1,0 +1,53 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Large Datasets & Archives
+*.tar
+*.tar.gz
+*.tgz
+**/extracted/
+**/data/cv/extracted/
+**/data/issai_tsc/extracted/
+**/data/librispeech/
+**/data/cv/train.jsonl
+**/data/cv/val.jsonl
+**/data/cv/test.jsonl
+**/data/issai_tsc/train.jsonl
+**/data/issai_tsc/val.jsonl
+**/data/issai_tsc/test.jsonl
+
+# Model Checkpoints & Weights
+**/checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
