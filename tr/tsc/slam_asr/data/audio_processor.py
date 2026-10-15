@@ -39,6 +39,26 @@ class AudioProcessor:
         self.hop_length = 160
         self.whisper_max_length_samples = 30 * sampling_rate  # 30 seconds = 480,000 samples
 
+        # Precompute Mel filterbank matrix once for Whisper (Slaney norm matches official Whisper)
+        try:
+            self.mel_filters = torchaudio.functional.melscale_fbanks(
+                n_freqs=self.n_fft // 2 + 1,
+                f_min=0.0,
+                f_max=8000.0,
+                n_mels=self.whisper_mel_bins,
+                sample_rate=self.sampling_rate,
+                norm="slaney",
+                mel_scale="slaney",
+            ).transpose(0, 1)
+        except Exception:
+            self.mel_filters = torchaudio.functional.melscale_fbanks(
+                n_freqs=self.n_fft // 2 + 1,
+                f_min=0.0,
+                f_max=8000.0,
+                n_mels=self.whisper_mel_bins,
+                sample_rate=self.sampling_rate,
+            ).transpose(0, 1)
+
     def load_audio(self, audio_path_or_array: Union[str, np.ndarray, torch.Tensor]) -> torch.Tensor:
         """Load audio from file path or convert from numpy/tensor to 1D float tensor at 16 kHz."""
         if isinstance(audio_path_or_array, str):
@@ -118,14 +138,7 @@ class AudioProcessor:
         )
         magnitudes = stft[..., :-1].abs() ** 2
 
-        mel_filters = torchaudio.functional.melscale_fbanks(
-            n_freqs=self.n_fft // 2 + 1,
-            f_min=0.0,
-            f_max=8000.0,
-            n_mels=self.whisper_mel_bins,
-            sample_rate=self.sampling_rate,
-        ).transpose(0, 1)
-
+        mel_filters = self.mel_filters.to(magnitudes.device)
         mel_spec = torch.matmul(mel_filters, magnitudes)
         log_mel_spec = torch.clamp(mel_spec, min=1e-10).log10()
         log_mel_spec = torch.maximum(log_mel_spec, log_mel_spec.max() - 8.0)

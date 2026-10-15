@@ -85,11 +85,16 @@ def main():
 
     use_amp = (model_config.torch_dtype in ("float16", "bfloat16")) and device.type == "cuda"
     amp_dtype = torch.bfloat16 if model_config.torch_dtype == "bfloat16" else torch.float16
+    autocast_ctx = (
+        (lambda: torch.amp.autocast("cuda", dtype=amp_dtype))
+        if hasattr(torch, "amp") and hasattr(torch.amp, "autocast")
+        else (lambda: torch.cuda.amp.autocast(dtype=amp_dtype))
+    )
 
     print(f"[*] Transcribing (beam_size={args.beam_size})...")
     with torch.no_grad():
         if use_amp:
-            with torch.cuda.amp.autocast(dtype=amp_dtype):
+            with autocast_ctx():
                 transcription = model.generate(
                     speech_inputs=speech_tensor,
                     prompts=[args.prompt],
