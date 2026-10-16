@@ -2,9 +2,9 @@
 # Common Voice Turkish (Whisper-Small + Qwen2.5-7B with 4-bit NF4 Quantization)
 
 model:
-  speech_encoder_name_or_path: "openai/whisper-small"
+  speech_encoder_name_or_path: "openai/whisper-large-v3"
   llm_name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  encoder_dim: 768
+  encoder_dim: 1280
   llm_dim: 3584
   downsample_rate: 5
   projector_type: "linear"
@@ -22,7 +22,7 @@ data:
   test_manifest: "data/cv/test.jsonl"
   sampling_rate: 16000
   is_whisper: true
-  whisper_mel_bins: 80
+  whisper_mel_bins: 128
   batch_size: 4
   num_workers: 4
 

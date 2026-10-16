@@ -9,7 +9,7 @@ Bu çalışma, **Mozilla Data Collective (MDC)** üzerinden sağlanan Common Voi
 ## 📖 Genel Bakış / Overview
 
 SLAM-ASR mimarisi, büyük ve karmaşık çok modlu ASR modellerine (Q-Former, gated cross-attention veya LLM LoRA ince ayarı) ihtiyaç olmadığını kanıtlar:
-* **Akustik Kodlayıcı (Speech Encoder):** `openai/whisper-small` — **DONDURULMUŞ (FROZEN)**.
+* **Akustik Kodlayıcı (Speech Encoder):** `openai/whisper-large-v3` (veya `facebook/mms-300m`) — **DONDURULMUŞ (FROZEN)**.
 * **Büyük Dil Modeli (LLM Backbone):** `Qwen/Qwen2.5-7B-Instruct` veya `Trendyol/Trendyol-LLM-7b-chat-v1.0` — **DONDURULMUŞ (FROZEN)**.
 * **Projektör (Projector):** $k=5$ zaman boyutunda ardışık kare birleştirme (temporal downsampling, 50 Hz $\to$ 10 Hz) ve tek bir Lineer katman — **EĞİTİLEN TEK MODÜL** (~15M - 20M parametre).
 

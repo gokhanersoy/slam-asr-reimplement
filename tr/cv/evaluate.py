@@ -111,6 +111,11 @@ def main():
 
     use_amp = (model_config.torch_dtype in ("float16", "bfloat16")) and device.type == "cuda"
     amp_dtype = torch.bfloat16 if model_config.torch_dtype == "bfloat16" else torch.float16
+    autocast_ctx = (
+        (lambda: torch.amp.autocast("cuda", dtype=amp_dtype))
+        if hasattr(torch, "amp") and hasattr(torch.amp, "autocast")
+        else (lambda: torch.cuda.amp.autocast(dtype=amp_dtype))
+    )
 
     print(f"[*] Evaluating {len(test_dataset)} samples with beam_size={args.beam_size}...")
     with torch.no_grad():
@@ -123,7 +128,7 @@ def main():
             )
 
             if use_amp:
-                with torch.cuda.amp.autocast(dtype=amp_dtype):
+                with autocast_ctx():
                     preds = model.generate(
                         speech_inputs=speech_inputs,
                         speech_attention_mask=speech_mask,

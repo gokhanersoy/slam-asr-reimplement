@@ -82,6 +82,12 @@ class ASRTrainer:
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.args.fp16 and self.device.type == "cuda")
         self.amp_dtype = amp_dtype
 
+    def _autocast(self):
+        """Unified autocast context manager supporting modern PyTorch 2.x and legacy."""
+        if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+            return torch.amp.autocast("cuda", dtype=self.amp_dtype)
+        return torch.cuda.amp.autocast(dtype=self.amp_dtype)
+
     def train(self):
         """Execute full training loop with early stopping."""
         print(f"[*] Starting SLAM-ASR Training on device: {self.device}")
@@ -113,7 +119,7 @@ class ASRTrainer:
 
                 # Mixed precision forward pass
                 if self.use_amp:
-                    with torch.cuda.amp.autocast(dtype=self.amp_dtype):
+                    with self._autocast():
                         outputs = self.model(
                             speech_inputs=speech_inputs,
                             speech_attention_mask=speech_attention_mask,
@@ -218,7 +224,7 @@ class ASRTrainer:
             prompts = batch["prompts"]
 
             if self.use_amp:
-                with torch.cuda.amp.autocast(dtype=self.amp_dtype):
+                with self._autocast():
                     outputs = self.model(
                         speech_inputs=speech_inputs,
                         speech_attention_mask=speech_attention_mask,

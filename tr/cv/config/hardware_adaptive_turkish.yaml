@@ -3,9 +3,9 @@
 # for the active GPU (RTX A4000, Colab T4, L4, A100, Apple Silicon MPS, or CPU).
 
 model:
-  speech_encoder_name_or_path: "openai/whisper-small"
+  speech_encoder_name_or_path: "openai/whisper-large-v3"
   llm_name_or_path: "Qwen/Qwen2.5-7B-Instruct"
-  encoder_dim: 768
+  encoder_dim: 1280
   llm_dim: 3584
   downsample_rate: 5
   projector_type: "linear"
@@ -23,7 +23,7 @@ data:
   test_manifest: "data/cv/test.jsonl"
   sampling_rate: 16000
   is_whisper: true
-  whisper_mel_bins: 80
+  whisper_mel_bins: 128
   batch_size: "auto"         # Auto-calculated for optimal memory usage
   num_workers: "auto"        # Auto-calculated for CPU core count
 
