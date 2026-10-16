@@ -184,6 +184,7 @@ class ASRTrainer:
                             patience_counter += 1
                             if patience_counter >= self.args.early_stopping_patience:
                                 print(f"[*] Early stopping triggered after {patience_counter} evals without improvement.")
+                                self.save_checkpoint("final_checkpoint")
                                 progress_bar.close()
                                 return
 
