@@ -1,4 +1,4 @@
-"""Unit tests for SLAM-ASR projector and downsampler."""
+"""Unit tests for SLAM-ASR projector, downsamplers, and Phoneme Attention."""
 
 import unittest
 
@@ -8,6 +8,9 @@ try:
         FrameDownsampler,
         LinearProjector,
         MLPProjector,
+        PhonemeAttentionProjector,
+        PhonemeSelfAttentionBlock,
+        PhoneticPrototypeAttention,
         SpeechProjector,
     )
     TORCH_AVAILABLE = True
@@ -64,14 +67,59 @@ class TestProjector(unittest.TestCase):
         out = projector(x)
         self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))
 
-    def test_speech_projector_end_to_end(self):
+    def test_phonetic_prototype_attention(self):
+        num_proto = 32
+        ppa = PhoneticPrototypeAttention(dim=self.encoder_dim, num_prototypes=num_proto, num_heads=4)
+        x = torch.randn(self.batch_size, 50, self.encoder_dim)
+        out, weights = ppa(x)
+        self.assertEqual(out.shape, (self.batch_size, 50, self.encoder_dim))
+        self.assertEqual(weights.shape, (self.batch_size, 50, num_proto))
+        # Attention weights should sum to ~1.0
+        self.assertTrue(torch.allclose(weights.sum(dim=-1), torch.ones(self.batch_size, 50), atol=1e-5))
+
+    def test_phoneme_self_attention_block(self):
+        psa = PhonemeSelfAttentionBlock(dim=self.llm_dim, num_heads=4, dropout=0.0)
+        x = torch.randn(self.batch_size, 10, self.llm_dim)
+        mask = torch.ones(self.batch_size, 10, dtype=torch.long)
+        out = psa(x, mask)
+        self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))
+
+    def test_phoneme_attention_projector_end_to_end(self):
+        pap = PhonemeAttentionProjector(
+            encoder_dim=self.encoder_dim,
+            llm_dim=self.llm_dim,
+            downsample_rate=self.k,
+            num_phoneme_prototypes=32,
+            num_attention_heads=4,
+        )
+        x = torch.randn(self.batch_size, 50, self.encoder_dim)
+        mask = torch.ones(self.batch_size, 50, dtype=torch.long)
+        out, out_mask = pap(x, mask)
+        self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))
+        self.assertEqual(out_mask.shape, (self.batch_size, 10))
+
+    def test_speech_projector_phoneme_attention_end_to_end(self):
+        speech_projector = SpeechProjector(
+            encoder_dim=self.encoder_dim,
+            llm_dim=self.llm_dim,
+            downsample_rate=self.k,
+            projector_type="phoneme_attention",
+            num_phoneme_prototypes=32,
+            num_attention_heads=4,
+        )
+        features = torch.randn(self.batch_size, 50, self.encoder_dim)
+        mask = torch.ones(self.batch_size, 50, dtype=torch.long)
+        out, out_mask = speech_projector(features, mask)
+        self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))
+        self.assertEqual(out_mask.shape, (self.batch_size, 10))
+
+    def test_speech_projector_linear_end_to_end(self):
         speech_projector = SpeechProjector(
             encoder_dim=self.encoder_dim,
             llm_dim=self.llm_dim,
             downsample_rate=5,
             projector_type="linear",
         )
-        # 50 frames input at ~50 Hz -> 10 frames output at ~10 Hz
         features = torch.randn(self.batch_size, 50, self.encoder_dim)
         out, _ = speech_projector(features)
         self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))

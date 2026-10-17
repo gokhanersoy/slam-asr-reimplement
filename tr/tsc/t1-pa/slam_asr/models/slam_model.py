@@ -32,9 +32,12 @@ class SLAMASRConfig:
     encoder_dim: Optional[int] = None
     llm_dim: Optional[int] = None
     downsample_rate: int = 5
-    projector_type: str = "linear"  # 'linear' or 'mlp'
+    projector_type: str = "phoneme_attention"  # 'linear', 'mlp', or 'phoneme_attention'
     projector_hidden_dim: int = 2048
     projector_padding_mode: str = "discard"  # 'discard' or 'pad'
+    num_phoneme_prototypes: int = 64
+    phoneme_attention_heads: int = 4
+    phoneme_dropout: float = 0.1
     freeze_encoder: bool = True
     freeze_llm: bool = True
     default_prompt: str = "Konuşmayı metne dönüştürün."
@@ -135,6 +138,9 @@ class SLAM_ASR(nn.Module):
                 projector_type=config.projector_type,
                 hidden_dim=config.projector_hidden_dim,
                 padding_mode=config.projector_padding_mode,
+                num_phoneme_prototypes=getattr(config, "num_phoneme_prototypes", 64),
+                num_attention_heads=getattr(config, "phoneme_attention_heads", 4),
+                attention_dropout=getattr(config, "phoneme_dropout", 0.1),
             )
 
     def freeze_llm(self):

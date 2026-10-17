@@ -8,7 +8,10 @@ model:
   encoder_dim: 1280
   llm_dim: 3584
   downsample_rate: 5
-  projector_type: "linear"
+  projector_type: "phoneme_attention"
+  num_phoneme_prototypes: 64
+  phoneme_attention_heads: 4
+  phoneme_dropout: 0.1
   projector_hidden_dim: 2048
   projector_padding_mode: "discard"
   freeze_encoder: true
