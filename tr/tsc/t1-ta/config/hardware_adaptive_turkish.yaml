@@ -8,7 +8,10 @@ model:
   encoder_dim: 1280
   llm_dim: 3584
   downsample_rate: 5
-  projector_type: "linear"
+  projector_type: "temporal_attention"
+  temporal_attention_heads: 4
+  temporal_pooling_mode: "hybrid"
+  temporal_attention_dropout: 0.1
   projector_hidden_dim: 2048
   projector_padding_mode: "discard"
   freeze_encoder: true

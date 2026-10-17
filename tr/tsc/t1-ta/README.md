@@ -6,14 +6,16 @@ Bu çalışma, **ISSAI Turkish Speech Corpus (ISSAI_TSC_218)** veri seti (~218 s
 
 ---
 
-## 📖 Genel Bakış / Overview
+## 📖 Genel Bakış / Overview (t1-ta: Temporal Attention)
 
-SLAM-ASR mimarisi, büyük ve karmaşık çok modlu ASR modellerine (Q-Former, gated cross-attention veya LLM LoRA ince ayarı) ihtiyaç olmadığını kanıtlar:
-* **Akustik Kodlayıcı (Speech Encoder):** `openai/whisper-large-v3` (veya `facebook/mms-300m`) — **DONDURULMUŞ (FROZEN)**.
-* **Büyük Dil Modeli (LLM Backbone):** `Qwen/Qwen2.5-7B-Instruct` veya `Trendyol/Trendyol-LLM-7b-chat-v1.0` — **DONDURULMUŞ (FROZEN)**.
-* **Projektör (Projector):** $k=5$ zaman boyutunda ardışık kare birleştirme (temporal downsampling, 50 Hz $\to$ 10 Hz) ve tek bir Lineer katman — **EĞİTİLEN TEK MODÜL** (~15M - 20M parametre).
+Bu klasör (`t1-ta`), SLAM-ASR mimarisi üzerine **Temporal Attention (Zamansal Dikkat)** mekanizmasının entegre edildiği deneysel daldır:
+* **Akustik Kodlayıcı (Speech Encoder):** `openai/whisper-large-v3` — **DONDURULMUŞ (FROZEN)**.
+* **Büyük Dil Modeli (LLM Backbone):** `Qwen/Qwen2.5-7B-Instruct` — **DONDURULMUŞ (FROZEN)**.
+* **Projektör (`TemporalAttentionProjector`):**
+  1. **Segmental Temporal Attention Downsampling (Intra-Window TSN-Style):** $k=5$ ardışık çerçeve penceresi içinde dinamik dikkat havuzlaması (attention pooling) ile pencerelerin en ayırt edici akustik anlarını (özellikle kısa süren Türkçe ekleri ve patlamalı ünsüzleri) ağırlıklandırır ve hibrit olarak birleştirir.
+  2. **Lineer Projeksiyon:** Birleştirilmiş özellikleri LLM gömme boyutuna eşler.
+  3. **Multi-Head Temporal Self-Attention (Inter-Window):** 4 başlıklı dikkat katmanı ile sıkıştırılmış konuşma token'ları arasında dizi boyunca zaman ekseninde karşılıklı bağlam (özellikle Türkçe büyük/küçük ünlü uyumu ve hece geçişleri) kurar.
 
-Modelin parametrelerinin yalnızca **%0.6'sı** eğitilerek, doğrudan Türkçe transkripsiyon yeteneği kazandırılır.
 
 ---
 
