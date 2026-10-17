@@ -69,7 +69,8 @@ class TestProjector(unittest.TestCase):
 
     def test_phonetic_prototype_attention(self):
         num_proto = 32
-        ppa = PhoneticPrototypeAttention(dim=self.encoder_dim, num_prototypes=num_proto, num_heads=4)
+        ppa = PhoneticPrototypeAttention(dim=self.encoder_dim, num_prototypes=num_proto, num_heads=4, dropout=0.0)
+        ppa.eval()
         x = torch.randn(self.batch_size, 50, self.encoder_dim)
         out, weights = ppa(x)
         self.assertEqual(out.shape, (self.batch_size, 50, self.encoder_dim))

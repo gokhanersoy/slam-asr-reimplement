@@ -177,8 +177,8 @@ class PhoneticPrototypeAttention(nn.Module):
 
         # Attention scores: (B, heads, T, N_proto)
         scores = torch.matmul(q_heads, k_heads.transpose(-2, -1)) * (head_dim ** -0.5)
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
+        attn_probs = F.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_probs)
 
         # Attended phonetic representations: (B, heads, T, head_dim)
         proto_context = torch.matmul(attn_weights, v_heads)
@@ -189,7 +189,7 @@ class PhoneticPrototypeAttention(nn.Module):
         out = self.norm(x + torch.tanh(self.gate) * self.dropout(proto_context))
 
         # Average attention weights across heads for visualization/inspection: (B, T, N_proto)
-        avg_weights = attn_weights.mean(dim=1)
+        avg_weights = attn_probs.mean(dim=1)
         return out, avg_weights
 
 

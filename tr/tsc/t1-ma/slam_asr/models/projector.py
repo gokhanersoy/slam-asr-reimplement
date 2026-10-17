@@ -198,15 +198,15 @@ class MorphemePrototypeAttention(nn.Module):
         v_heads = v.view(batch_size, self.num_prototypes, self.num_heads, head_dim).transpose(1, 2)
 
         scores = torch.matmul(q_heads, k_heads.transpose(-2, -1)) * (head_dim ** -0.5)
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
+        attn_probs = F.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_probs)
 
         context = torch.matmul(attn_weights, v_heads)
         context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, self.dim)
         context = self.out_proj(context)
 
         out = self.norm(x + torch.tanh(self.gate) * self.dropout(context))
-        avg_weights = attn_weights.mean(dim=1)
+        avg_weights = attn_probs.mean(dim=1)
         return out, avg_weights
 
 

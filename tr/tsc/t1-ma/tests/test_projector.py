@@ -77,6 +77,7 @@ class TestProjector(unittest.TestCase):
     def test_morpheme_prototype_attention(self):
         num_proto = 32
         mpa = MorphemePrototypeAttention(dim=self.llm_dim, num_prototypes=num_proto, num_heads=4, dropout=0.0)
+        mpa.eval()
         x = torch.randn(self.batch_size, 10, self.llm_dim)
         out, weights = mpa(x)
         self.assertEqual(out.shape, (self.batch_size, 10, self.llm_dim))
