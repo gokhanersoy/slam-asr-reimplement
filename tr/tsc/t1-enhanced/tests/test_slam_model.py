@@ -22,7 +22,7 @@ if TORCH_AVAILABLE:
             self.hidden_size = hidden_size
             self.dummy_layer = nn.Linear(hidden_size, hidden_size)
 
-        def forward(self, x, mask=None):
+        def forward(self, x, mask=None, attention_mask=None, **kwargs):
             # x is (batch, samples), return features (batch, 20, hidden_size)
             batch = x.size(0)
             return torch.randn(batch, 20, self.hidden_size), None

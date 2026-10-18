@@ -240,12 +240,15 @@ class SLAM_ASR(nn.Module):
         speech_inputs: torch.Tensor,
         speech_attention_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Pass speech through encoder and projector."""
-        encoder_outputs = self.speech_encoder(
-            speech_inputs, attention_mask=speech_attention_mask
-        )
-        features = encoder_outputs.last_hidden_state
-        return self.projector(features, speech_attention_mask)
+        """Pass speech through encoder and projector.
+
+        Returns:
+            speech_embeds: (batch_size, downsampled_frames, llm_dim)
+            speech_mask: (batch_size, downsampled_frames) or None
+        """
+        features, mask = self.speech_encoder(speech_inputs, speech_attention_mask)
+        projected, downsampled_mask = self.projector(features, mask)
+        return projected, downsampled_mask
 
     def prepare_multimodal_embeddings(
         self,
