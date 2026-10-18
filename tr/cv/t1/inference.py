@@ -83,8 +83,9 @@ def main():
     print(f"[*] Processing audio: {args.audio}")
     speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device)  # (1, samples) or (1, mels, 3000)
 
-    use_amp = (model_config.torch_dtype in ("float16", "bfloat16")) and device.type == "cuda"
-    amp_dtype = torch.bfloat16 if model_config.torch_dtype == "bfloat16" else torch.float16
+    model_dtype_str = getattr(model_config, "dtype", None) or getattr(model_config, "torch_dtype", "float32")
+    use_amp = (model_dtype_str in ("float16", "bfloat16")) and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if model_dtype_str == "bfloat16" else torch.float16
     autocast_ctx = (
         (lambda: torch.amp.autocast("cuda", dtype=amp_dtype))
         if hasattr(torch, "amp") and hasattr(torch.amp, "autocast")

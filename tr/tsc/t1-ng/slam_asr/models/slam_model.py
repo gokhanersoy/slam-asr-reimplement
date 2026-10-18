@@ -45,6 +45,7 @@ class SLAMASRConfig:
     user_prefix: str = "USER: "
     assistant_prefix: str = " ASSISTANT: "
     torch_dtype: str = "float32"  # 'float32', 'float16', 'bfloat16'
+    dtype: Optional[str] = None  # Modern transformers standard parameter alias
     load_in_4bit: bool = False
     load_in_8bit: bool = False
     device_map: Optional[str] = None
@@ -98,8 +99,9 @@ class SLAM_ASR(nn.Module):
                 "float16": torch.float16,
                 "bfloat16": torch.bfloat16,
             }
-            torch_dtype = dtype_map.get(config.torch_dtype, torch.float32)
-            llm_kwargs = {"torch_dtype": torch_dtype}
+            model_dtype_str = getattr(config, "dtype", None) or getattr(config, "torch_dtype", "float32")
+            torch_dtype = dtype_map.get(model_dtype_str, torch.float32)
+            llm_kwargs = {}
 
             if config.load_in_4bit:
                 from transformers import BitsAndBytesConfig
@@ -117,10 +119,20 @@ class SLAM_ASR(nn.Module):
             elif config.device_map:
                 llm_kwargs["device_map"] = config.device_map
 
-            self.language_model = AutoModelForCausalLM.from_pretrained(
-                config.llm_name_or_path,
-                **llm_kwargs,
-            )
+            try:
+                # Modern transformers (>=4.45) prefers 'dtype' and deprecates 'torch_dtype'
+                self.language_model = AutoModelForCausalLM.from_pretrained(
+                    config.llm_name_or_path,
+                    dtype=torch_dtype,
+                    **llm_kwargs,
+                )
+            except (TypeError, ValueError):
+                # Backwards compatibility for older transformers versions
+                self.language_model = AutoModelForCausalLM.from_pretrained(
+                    config.llm_name_or_path,
+                    torch_dtype=torch_dtype,
+                    **llm_kwargs,
+                )
 
         llm_dim = config.llm_dim or self.language_model.config.hidden_size
 
@@ -174,7 +186,8 @@ class SLAM_ASR(nn.Module):
             "bfloat16": torch.bfloat16,
             "float32": torch.float32,
         }
-        return dtype_map.get(getattr(self.config, "torch_dtype", "float32"), torch.float32)
+        model_dtype_str = getattr(self.config, "dtype", None) or getattr(self.config, "torch_dtype", "float32")
+        return dtype_map.get(model_dtype_str, torch.float32)
 
     def encode_speech(
         self,
