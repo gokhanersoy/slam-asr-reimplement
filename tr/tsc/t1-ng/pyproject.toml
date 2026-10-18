@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slam-asr"
+version = "0.1.0"
+description = "PyTorch Reimplementation of SLAM-ASR: An Embarrassingly Simple Approach for LLM with Strong ASR Capacity (arXiv:2402.08846)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "transformers>=4.38.0",
+    "accelerate>=0.27.0",
+    "datasets>=2.16.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.1",
+    "jiwer>=3.0.3",
+    "pyyaml>=6.0.1",
+    "tqdm>=4.66.0",
+    "numpy>=1.24.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["slam_asr*"]
