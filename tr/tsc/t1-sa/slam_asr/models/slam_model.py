@@ -31,6 +31,7 @@ class SLAMASRConfig:
     llm_name_or_path: str = "lmsys/vicuna-7b-v1.5"
     encoder_dim: Optional[int] = None
     llm_dim: Optional[int] = None
+    downsample_rate: int = 5
     projector_type: str = "spectral_attention"  # 'linear', 'mlp', or 'spectral_attention'
     num_spectral_bands: int = 16
     spectral_attention_heads: int = 4

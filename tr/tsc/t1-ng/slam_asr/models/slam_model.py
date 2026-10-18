@@ -31,6 +31,7 @@ class SLAMASRConfig:
     llm_name_or_path: str = "lmsys/vicuna-7b-v1.5"
     encoder_dim: Optional[int] = None
     llm_dim: Optional[int] = None
+    downsample_rate: int = 5
     projector_type: str = "ngram_attention"  # 'linear', 'mlp', or 'ngram_attention'
     ngram_orders: tuple[int, ...] = (1, 3, 5, 9)
     ngram_window_size: int = 5
