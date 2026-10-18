@@ -408,17 +408,6 @@ class SLAM_ASR(nn.Module):
             ctc_logits = self.ctc_head(speech_embeds)  # (B, T_down, V)
             log_probs = F.log_softmax(ctc_logits, dim=-1).transpose(0, 1)  # (T_down, B, V)
 
-            batch_target_ids = []
-            target_lengths = []
-            for t in transcripts:
-                t_clean = t.lower().strip()
-                ids = [self.ctc_char2id.get(ch, self.ctc_unk_id) for ch in t_clean]
-                batch_target_ids.extend(ids)
-                target_lengths.append(len(ids))
-
-            targets = torch.tensor(batch_target_ids, dtype=torch.long, device=speech_embeds.device)
-            target_lengths = torch.tensor(target_lengths, dtype=torch.long, device=speech_embeds.device)
-
             if speech_mask is not None:
                 input_lengths = speech_mask.sum(dim=-1).long()
             else:
@@ -426,8 +415,22 @@ class SLAM_ASR(nn.Module):
                     (speech_embeds.size(0),), speech_embeds.size(1), dtype=torch.long, device=speech_embeds.device
                 )
 
-            # Clamp target lengths to at most input length for CTC valid path
-            target_lengths = torch.clamp(target_lengths, min=1, max=input_lengths)
+            batch_target_ids = []
+            target_lengths = []
+            for i, t in enumerate(transcripts):
+                t_clean = t.lower().strip()
+                ids = [self.ctc_char2id.get(ch, self.ctc_unk_id) for ch in t_clean]
+                if not ids:
+                    ids = [self.ctc_unk_id]
+                # CTC requires target_length <= input_length
+                max_allowed = max(1, input_lengths[i].item())
+                if len(ids) > max_allowed:
+                    ids = ids[:max_allowed]
+                batch_target_ids.extend(ids)
+                target_lengths.append(len(ids))
+
+            targets = torch.tensor(batch_target_ids, dtype=torch.long, device=speech_embeds.device)
+            target_lengths = torch.tensor(target_lengths, dtype=torch.long, device=speech_embeds.device)
 
             ctc_loss = F.ctc_loss(
                 log_probs,
