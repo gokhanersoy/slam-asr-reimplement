@@ -88,8 +88,32 @@ class ASRTrainer:
             return torch.amp.autocast("cuda", dtype=self.amp_dtype)
         return torch.cuda.amp.autocast(dtype=self.amp_dtype)
 
-    def train(self):
-        """Execute full training loop with early stopping."""
+    def _prune_old_checkpoints(self, keep_last_n: int = 2):
+        """Keep only the latest N step checkpoints to prevent filling up disk space."""
+        import glob
+        import shutil
+
+        step_dirs = glob.glob(os.path.join(self.args.output_dir, "step_*"))
+        valid_steps = []
+        for d in step_dirs:
+            dirname = os.path.basename(d)
+            try:
+                step_num = int(dirname.split("_")[-1])
+                valid_steps.append((step_num, d))
+            except ValueError:
+                continue
+        valid_steps.sort(key=lambda x: x[0])
+        if len(valid_steps) > keep_last_n:
+            to_remove = valid_steps[:-keep_last_n]
+            for step_num, d in to_remove:
+                try:
+                    shutil.rmtree(d)
+                    print(f"[*] Disk management: pruned old checkpoint {d} to preserve space.")
+                except Exception as e:
+                    print(f"[!] Warning: Could not remove old checkpoint {d}: {e}")
+
+    def train(self, resume_from_checkpoint: Optional[str] = None):
+        """Execute full training loop with early stopping and optional resume."""
         print(f"[*] Starting SLAM-ASR Training on device: {self.device}")
         trainable_count = sum(p.numel() for p in self.model.get_trainable_parameters())
         total_count = sum(p.numel() for p in self.model.parameters())
@@ -100,10 +124,51 @@ class ASRTrainer:
         patience_counter = 0
         running_loss = 0.0
 
+        if resume_from_checkpoint:
+            print(f"[*] Resuming training from checkpoint: {resume_from_checkpoint}")
+            proj_path = os.path.join(resume_from_checkpoint, "projector.pt")
+            if os.path.exists(proj_path):
+                self.model.projector.load_state_dict(torch.load(proj_path, map_location=self.device))
+                print(f"[*] Restored projector weights from {proj_path}")
+
+            ctc_path = os.path.join(resume_from_checkpoint, "ctc_head.pt")
+            if os.path.exists(ctc_path) and getattr(self.model, "ctc_head", None) is not None:
+                self.model.ctc_head.load_state_dict(torch.load(ctc_path, map_location=self.device))
+                print(f"[*] Restored CTC head weights from {ctc_path}")
+
+            lora_dir = os.path.join(resume_from_checkpoint, "lora_adapter")
+            if os.path.exists(lora_dir) and hasattr(self.model.language_model, "peft_config"):
+                try:
+                    from peft import PeftModel
+                    self.model.language_model = PeftModel.from_pretrained(self.model.language_model, lora_dir)
+                    print(f"[*] Restored LoRA adapter from {lora_dir}")
+                except Exception as e:
+                    print(f"[!] Warning: Could not restore LoRA adapter: {e}")
+
+            state_path = os.path.join(resume_from_checkpoint, "training_state.pt")
+            if os.path.exists(state_path):
+                state = torch.load(state_path, map_location="cpu")
+                global_step = state.get("global_step", 0)
+                best_eval_loss = state.get("best_eval_loss", float("inf"))
+                patience_counter = state.get("patience_counter", 0)
+                print(f"[*] Restored training state: global_step={global_step}, best_eval_loss={best_eval_loss:.4f}")
+            else:
+                dirname = os.path.basename(os.path.normpath(resume_from_checkpoint))
+                if dirname.startswith("step_"):
+                    try:
+                        global_step = int(dirname.split("_")[-1])
+                        print(f"[*] Inferred global_step={global_step} from checkpoint name.")
+                    except ValueError:
+                        pass
+
+            if global_step > 0:
+                self.lr_scheduler.last_epoch = global_step
+                self.lr_scheduler.step()
+
         self.model.train()
         epoch = 0
 
-        progress_bar = tqdm(total=self.args.max_steps, desc="Training")
+        progress_bar = tqdm(total=self.args.max_steps, initial=global_step, desc="Training")
 
         while global_step < self.args.max_steps:
             epoch += 1
@@ -178,13 +243,23 @@ class ASRTrainer:
                         if eval_loss < best_eval_loss:
                             best_eval_loss = eval_loss
                             patience_counter = 0
-                            self.save_checkpoint(f"best_checkpoint")
+                            self.save_checkpoint(
+                                "best_checkpoint",
+                                global_step=global_step,
+                                best_eval_loss=best_eval_loss,
+                                patience_counter=patience_counter,
+                            )
                             print(f"[*] New best validation loss achieved: {best_eval_loss:.4f}")
                         else:
                             patience_counter += 1
                             if patience_counter >= self.args.early_stopping_patience:
                                 print(f"[*] Early stopping triggered after {patience_counter} evals without improvement.")
-                                self.save_checkpoint("final_checkpoint")
+                                self.save_checkpoint(
+                                    "final_checkpoint",
+                                    global_step=global_step,
+                                    best_eval_loss=best_eval_loss,
+                                    patience_counter=patience_counter,
+                                )
                                 progress_bar.close()
                                 return
 
@@ -192,13 +267,24 @@ class ASRTrainer:
 
                     # Periodic Save
                     if global_step % self.args.save_steps == 0:
-                        self.save_checkpoint(f"step_{global_step}")
+                        self.save_checkpoint(
+                            f"step_{global_step}",
+                            global_step=global_step,
+                            best_eval_loss=best_eval_loss,
+                            patience_counter=patience_counter,
+                        )
+                        self._prune_old_checkpoints(keep_last_n=2)
 
                     if global_step >= self.args.max_steps:
                         break
 
         progress_bar.close()
-        self.save_checkpoint("final_checkpoint")
+        self.save_checkpoint(
+            "final_checkpoint",
+            global_step=global_step,
+            best_eval_loss=best_eval_loss,
+            patience_counter=patience_counter,
+        )
         print("[*] Training completed.")
 
     @torch.no_grad()
@@ -242,25 +328,41 @@ class ASRTrainer:
 
         return total_eval_loss / max(1, total_batches)
 
-    def save_checkpoint(self, tag: str):
+    def save_checkpoint(
+        self,
+        tag: str,
+        global_step: Optional[int] = None,
+        best_eval_loss: Optional[float] = None,
+        patience_counter: Optional[int] = None,
+    ):
         ckpt_dir = os.path.join(self.args.output_dir, tag)
         os.makedirs(ckpt_dir, exist_ok=True)
 
-        # Save projector weights
+        # 1. Save projector weights (~20MB)
         projector_path = os.path.join(ckpt_dir, "projector.pt")
         torch.save(self.model.projector.state_dict(), projector_path)
 
-        # Save LoRA adapter if PEFT is active
-        if hasattr(self.model.language_model, "save_pretrained"):
+        # 2. Save LoRA adapter ONLY if PEFT model is active (never save the base 15GB LLM!)
+        if hasattr(self.model.language_model, "peft_config"):
             lora_dir = os.path.join(ckpt_dir, "lora_adapter")
-            self.model.language_model.save_pretrained(lora_dir)
+            self.model.language_model.save_pretrained(lora_dir, safe_serialization=True)
+            print(f"[*] Saved LoRA adapter to {lora_dir}")
 
-        # Save CTC head if present
+        # 3. Save CTC head if present (~1MB)
         if getattr(self.model, "ctc_head", None) is not None:
             torch.save(self.model.ctc_head.state_dict(), os.path.join(ckpt_dir, "ctc_head.pt"))
 
-        # Save config dict
+        # 4. Save config dict
         config_path = os.path.join(ckpt_dir, "config.pt")
         torch.save(self.model.config, config_path)
+
+        # 5. Save training state for resumption
+        if global_step is not None:
+            state = {
+                "global_step": global_step,
+                "best_eval_loss": best_eval_loss,
+                "patience_counter": patience_counter,
+            }
+            torch.save(state, os.path.join(ckpt_dir, "training_state.pt"))
 
         print(f"[*] Saved checkpoint to {ckpt_dir}")

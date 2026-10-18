@@ -80,13 +80,13 @@ def main():
     # Check for trained LoRA adapter in checkpoint directory
     ckpt_dir = args.checkpoint if os.path.isdir(args.checkpoint) else os.path.dirname(args.checkpoint)
     lora_dir = os.path.join(ckpt_dir, "lora_adapter")
-    if os.path.exists(lora_dir):
+    if os.path.exists(lora_dir) and os.path.exists(os.path.join(lora_dir, "adapter_config.json")):
         try:
             from peft import PeftModel
             print(f"[*] Loading trained LoRA adapter from: {lora_dir}")
             model.language_model = PeftModel.from_pretrained(model.language_model, lora_dir)
-        except ImportError:
-            print("[!] Warning: peft not installed, running with base language model.")
+        except Exception as e:
+            print(f"[!] Warning: Could not load LoRA adapter ({e}), running with base language model.")
 
     model.eval()
 

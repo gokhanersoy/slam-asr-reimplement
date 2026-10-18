@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument("--train_manifest", type=str, default=None, help="Override train manifest path")
     parser.add_argument("--val_manifest", type=str, default=None, help="Override validation manifest path")
     parser.add_argument("--auto_device", action="store_true", default=False, help="Auto-optimize hyperparameters for active GPU/hardware")
+    parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="Resume training from an existing checkpoint directory")
     return parser.parse_args()
 
 
@@ -148,7 +149,7 @@ def main():
         args=train_args,
     )
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=cli_args.resume_from_checkpoint)
 
 
 if __name__ == "__main__":

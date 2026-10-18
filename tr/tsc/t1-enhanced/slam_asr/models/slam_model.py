@@ -154,8 +154,8 @@ class SLAM_ASR(nn.Module):
                 )
                 self.language_model = get_peft_model(self.language_model, lora_cfg)
                 print("[*] Successfully attached LoRA adapters to LLM backbone.")
-            except ImportError:
-                print("[!] Warning: peft library not available. Training with frozen LLM.")
+            except Exception as e:
+                print(f"[!] Warning: Could not initialize PEFT/LoRA ({type(e).__name__}: {e}). Training with frozen LLM.")
 
         # 3. Initialize or assign Projector
         if projector is not None:
