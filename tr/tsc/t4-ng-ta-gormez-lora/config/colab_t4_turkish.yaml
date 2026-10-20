@@ -1,0 +1,46 @@
+# Turkish SLAM-ASR: Optimized for Google Colab (T4 16GB) & Local RTX A4000 (16GB)
+# Pairs OpenAI Whisper-Large-v3 audio encoder with Qwen2.5-7B (4-bit NF4 Quantization)
+
+model:
+  speech_encoder_name_or_path: "openai/whisper-large-v3"
+  llm_name_or_path: "Qwen/Qwen2.5-7B-Instruct"
+  encoder_dim: 1280
+  llm_dim: 3584
+  downsample_rate: 5
+  projector_type: "gormez_hybrid"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
+  default_prompt: "Konuşmayı metne dönüştürün."
+  torch_dtype: "bfloat16"
+  load_in_4bit: true
+
+data:
+  train_manifest: "data/issai_tsc/train.jsonl"
+  val_manifest: "data/issai_tsc/val.jsonl"
+  test_manifest: "data/issai_tsc/test.jsonl"
+  sampling_rate: 16000
+  is_whisper: true
+  whisper_mel_bins: 128
+  batch_size: 4
+  num_workers: 4
+
+training:
+  output_dir: "./outputs/slam_asr_turkish_colab"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 1000
+  max_steps: 20000
+  gradient_accumulation_steps: 4  # Effective batch size: 16
+  logging_steps: 25
+  eval_steps: 500
+  save_steps: 1000
+  early_stopping_patience: 10
+  fp16: false
+  bf16: true
