@@ -142,15 +142,16 @@ class AudioProcessor:
 
         gain_db = torch.zeros_like(rms_db)
         mask = rms_db > self.drc_threshold_db
+        # Downward compression: attenuate peaks above threshold
         gain_db[mask] = (self.drc_threshold_db + (rms_db[mask] - self.drc_threshold_db) / self.drc_ratio) - rms_db[mask]
 
-        boost_gain_db = -gain_db
-        boost_gain = 10.0 ** (boost_gain_db / 20.0)
+        # Apply gain reduction (gain <= 1.0)
+        gain = 10.0 ** (gain_db / 20.0)
+        compressed = waveform * gain
 
-        compressed = waveform * boost_gain
+        # Make-up gain / peak normalization: boosts quiet trailing speech
         peak = torch.max(torch.abs(compressed)).clamp(min=1e-7)
-        if peak > 0.95:
-            compressed = compressed * (0.95 / peak)
+        compressed = compressed * (0.95 / peak)
         return compressed
 
     def process(self, audio_path_or_array: Union[str, np.ndarray, torch.Tensor]) -> torch.Tensor:
