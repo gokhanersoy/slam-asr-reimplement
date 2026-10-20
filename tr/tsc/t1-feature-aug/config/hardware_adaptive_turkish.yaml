@@ -1,0 +1,51 @@
+# Hardware-Adaptive Turkish SLAM-ASR Configuration
+# Automatically optimizes precision, quantization, batch size, and workers
+# for the active GPU (RTX A4000, Colab T4, L4, A100, Apple Silicon MPS, or CPU).
+
+model:
+  speech_encoder_name_or_path: "openai/whisper-large-v3"
+  llm_name_or_path: "Qwen/Qwen2.5-7B-Instruct"
+  encoder_dim: 1280
+  llm_dim: 3584
+  downsample_rate: 5
+  projector_type: "linear"
+  projector_hidden_dim: 2048
+  projector_padding_mode: "discard"
+  freeze_encoder: true
+  freeze_llm: true
+  default_prompt: "Konuşmayı metne dönüştürün."
+  torch_dtype: "auto"        # bfloat16 on Ampere/Ada/A100/A4000, float16 on T4
+  load_in_4bit: "auto"       # True on <=24GB VRAM (T4, A4000), False on >=40GB (A100)
+
+data:
+  train_manifest: "data/issai_tsc/train.jsonl"
+  val_manifest: "data/issai_tsc/val.jsonl"
+  test_manifest: "data/issai_tsc/test.jsonl"
+  sampling_rate: 16000
+  is_whisper: true
+  whisper_mel_bins: 128
+  apply_speed_perturbation: true
+  speed_factors: [0.9, 1.0, 1.1]
+  apply_volume_perturbation: true
+  volume_db_range: [-4.0, 4.0]
+  apply_spec_augment: true
+  freq_mask_param: 15
+  time_mask_param: 35
+  freq_mask_count: 2
+  time_mask_count: 2
+  batch_size: "auto"         # Auto-calculated for optimal memory usage
+  num_workers: "auto"        # Auto-calculated for CPU core count
+
+training:
+  output_dir: "./outputs/slam_asr_turkish_adaptive"
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_steps: 1000
+  max_steps: 25000
+  gradient_accumulation_steps: "auto" # Effective batch size: 16
+  logging_steps: 25
+  eval_steps: 500
+  save_steps: 1000
+  early_stopping_patience: 10
+  fp16: "auto"
+  bf16: "auto"
