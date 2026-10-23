@@ -16,11 +16,12 @@ Konuşma tanıma literatüründe modellerin farklı akustik alanlara transfer ka
 ### 2x2 Çapraz Korpus Transfer Matrisi:
 | Eğitim Verisi (Training Corpus) | Test: ISSAI_TSC (Spontane Yayın) | Test: Common Voice (Okuma Metni) |
 | :--- | :---: | :---: |
-| **ISSAI (t0 Baseline)** | %12.98 WER | %14.85 WER |
-| **ISSAI (t4-lora)** | %11.53 WER | %13.16 WER |
-| **ISSAI (t5-tail-aug-lora)** | **%11.43 WER** *(Tüm Zamanların SOTA)* | **%12.75 WER** *(Tüm Zamanların SOTA)* |
-| **Common Voice (t0 Baseline)** | %29.60 WER | %16.02 WER |
-| **Common Voice (t4-ng-ta-gormez-lora)** | **? % WER** *(Hedef: < %25)* | **? % WER** *(Hedef: < %14)* |
+| **ISSAI (t0 Baseline)** | %12.98 WER (%3.72 CER) | %14.85 WER (%3.92 CER) |
+| **ISSAI (t4-lora)** | %11.53 WER (%3.27 CER) | %13.16 WER (%3.34 CER) |
+| **ISSAI (t5-tail-aug-lora)** | **%11.43 WER (%3.21 CER)** *(ISSAI SOTA)* | **%12.75 WER (%3.17 CER)** *(Zero-Shot SOTA)* |
+| **Common Voice (t0 Baseline)** | %29.60 WER (%15.22 CER) | %16.02 WER (%4.78 CER) |
+| **Common Voice (t4-ng-ta-gormez-lora)** | **%24.16 WER (%11.38 CER)** | **%13.76 WER (%3.93 CER)** |
+| **Common Voice (t5-ng-ta-gormez-tail-aug-lora)** | **%21.69 WER (%8.78 CER)** *(Büyük Sıçrama)* | **%13.41 WER (%3.81 CER)** *(CV SOTA)* |
 
 Bu deney ile literatüre iki önemli katkı sağlanacaktır:
 1. **Mimari Evrensellik:** Görmez + LoRA mimarisinin yalnızca zorlu ve spontane ISSAI verisinde değil, mikrofona okunan Common Voice verisinde de `cv/t0` taban çizgisine kıyasla tutarlı bir kazanç sağlayıp sağlamadığı.

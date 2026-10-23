@@ -14,12 +14,12 @@ Bu proje (`cv/t5-ng-ta-gormez-tail-aug-lora`), bağımsız olarak test edilen ve
 
 | Eğitim Verisi (Training Corpus) | Model Mimarisi | Test: ISSAI_TSC (Spontane Yayın) | Test: Common Voice (Okuma Metni) |
 | :--- | :--- | :---: | :---: |
-| **ISSAI_TSC** | `t0` (Standart Doğrusal Baseline) | %12.98 WER | %14.85 WER |
-| **ISSAI_TSC** | `t4-ng-ta-gormez-lora` | %11.53 WER | %13.16 WER |
-| **ISSAI_TSC** | `t5-ng-ta-gormez-tail-aug-lora` | **%11.43 WER** *(SOTA)* | **%12.75 WER** *(SOTA)* |
-| **Common Voice** | `t0` (Standart Doğrusal Baseline) | %29.60 WER | %16.02 WER |
-| **Common Voice** | `t4-ng-ta-gormez-lora` | ? % WER | ? % WER |
-| **Common Voice** | `t5-ng-ta-gormez-tail-aug-lora` | **Zirve Hedefi** | **Zirve Hedefi (< %13.5)** |
+| **ISSAI_TSC** | `t0` (Standart Doğrusal Baseline) | %12.98 WER (%3.72 CER) | %14.85 WER (%3.92 CER) |
+| **ISSAI_TSC** | `t4-ng-ta-gormez-lora` | %11.53 WER (%3.27 CER) | %13.16 WER (%3.34 CER) |
+| **ISSAI_TSC** | `t5-ng-ta-gormez-tail-aug-lora` | **%11.43 WER (%3.21 CER)** *(ISSAI SOTA)* | **%12.75 WER (%3.17 CER)** *(Zero-Shot SOTA)* |
+| **Common Voice** | `t0` (Standart Doğrusal Baseline) | %29.60 WER (%15.22 CER) | %16.02 WER (%4.78 CER) |
+| **Common Voice** | `t4-ng-ta-gormez-lora` | %24.16 WER (%11.38 CER) | %13.76 WER (%3.93 CER) |
+| **Common Voice** | `t5-ng-ta-gormez-tail-aug-lora` | **%21.69 WER (%8.78 CER)** *(Büyük Sıçrama)* | **%13.41 WER (%3.81 CER)** *(CV SOTA)* |
 
 ---
 
