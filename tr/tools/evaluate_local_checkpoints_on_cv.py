@@ -25,31 +25,38 @@ import sys
 
 
 def find_default_checkpoints_dir():
-    """Automatically resolve the Google Drive checkpoints folder across OS platforms."""
+    """Automatically resolve the Google Drive checkpoints folder across OS platforms (including Turkish 'Drive\'ım')."""
     candidates = []
 
-    # 1. Windows: G: drive Google Drive mapping
+    # 1. Windows: G: drive Google Drive mapping (Drive'ım for Turkish, My Drive for English)
     for p in [
+        "G:/Drive'ım/checkpoints",
+        "G:\\Drive'ım\\checkpoints",
+        "G:/Drive'im/checkpoints",
         "G:/My Drive/checkpoints",
-        "G:/MyDrive/checkpoints",
-        "G:/checkpoints",
         "G:\\My Drive\\checkpoints",
+        "G:/MyDrive/checkpoints",
         "G:\\MyDrive\\checkpoints",
+        "G:/checkpoints",
         "G:\\checkpoints",
     ]:
         candidates.append(p)
 
-    # 2. macOS: CloudStorage (Google Drive for desktop)
+    # 2. macOS: CloudStorage (Google Drive for desktop - Drive'ım / My Drive)
     cloud_storage = os.path.expanduser("~/Library/CloudStorage")
     if os.path.exists(cloud_storage):
         for entry in sorted(glob.glob(os.path.join(cloud_storage, "GoogleDrive*"))):
+            candidates.append(os.path.join(entry, "Drive'ım", "checkpoints"))
+            candidates.append(os.path.join(entry, "Drive'im", "checkpoints"))
             candidates.append(os.path.join(entry, "My Drive", "checkpoints"))
             candidates.append(os.path.join(entry, "MyDrive", "checkpoints"))
             candidates.append(os.path.join(entry, "checkpoints"))
 
     # macOS legacy mounts & home folders
+    candidates.append(os.path.expanduser("~/Google Drive/Drive'ım/checkpoints"))
     candidates.append(os.path.expanduser("~/Google Drive/My Drive/checkpoints"))
     candidates.append(os.path.expanduser("~/Google Drive/checkpoints"))
+    candidates.append("/Volumes/GoogleDrive/Drive'ım/checkpoints")
     candidates.append("/Volumes/GoogleDrive/My Drive/checkpoints")
     candidates.append("/Volumes/GoogleDrive/MyDrive/checkpoints")
     candidates.append("/Volumes/GoogleDrive/checkpoints")
@@ -57,6 +64,7 @@ def find_default_checkpoints_dir():
     # 3. Google Colab / Linux
     candidates.append("/content/drive/MyDrive/checkpoints")
     candidates.append("/content/drive/My Drive/checkpoints")
+    candidates.append("/content/drive/Drive'ım/checkpoints")
 
     # Return the first candidate that actually exists and has checkpoints
     for cand in candidates:
@@ -73,12 +81,19 @@ def find_default_checkpoints_dir():
     # Default platform fallback
     system = platform.system()
     if system == "Windows":
-        return "G:/My Drive/checkpoints"
+        for cand in ["G:/Drive'ım/checkpoints", "G:/My Drive/checkpoints", "G:/checkpoints"]:
+            if os.path.exists(cand):
+                return cand
+        return "G:/Drive'ım/checkpoints"
     elif system == "Darwin":
         matches = glob.glob(os.path.expanduser("~/Library/CloudStorage/GoogleDrive*"))
         if matches:
-            return os.path.join(matches[0], "My Drive", "checkpoints")
-        return os.path.expanduser("~/Library/CloudStorage/GoogleDrive/My Drive/checkpoints")
+            for sub in ["Drive'ım", "My Drive", "MyDrive"]:
+                cand = os.path.join(matches[0], sub, "checkpoints")
+                if os.path.exists(cand):
+                    return cand
+            return os.path.join(matches[0], "Drive'ım", "checkpoints")
+        return os.path.expanduser("~/Library/CloudStorage/GoogleDrive/Drive'ım/checkpoints")
     else:
         return "/content/drive/MyDrive/checkpoints"
 
