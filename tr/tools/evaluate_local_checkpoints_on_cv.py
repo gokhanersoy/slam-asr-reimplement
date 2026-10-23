@@ -28,8 +28,12 @@ def find_default_checkpoints_dir():
     """Automatically resolve the Google Drive checkpoints folder across OS platforms (including Turkish 'Drive\'ım')."""
     candidates = []
 
-    # 1. Windows: G: drive Google Drive mapping (Drive'ım for Turkish, My Drive for English)
+    # 1. Windows: G: drive Google Drive mapping (Primary: G:\Drive'ım\_Akademik_\Doktora (Gazi)\checkpoints)
     for p in [
+        r"G:\Drive'ım\_Akademik_\Doktora (Gazi)\checkpoints",
+        "G:/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints",
+        "G:/Drive'im/_Akademik_/Doktora (Gazi)/checkpoints",
+        r"G:\Drive'im\_Akademik_\Doktora (Gazi)\checkpoints",
         "G:/Drive'ım/checkpoints",
         "G:\\Drive'ım\\checkpoints",
         "G:/Drive'im/checkpoints",
@@ -46,6 +50,9 @@ def find_default_checkpoints_dir():
     cloud_storage = os.path.expanduser("~/Library/CloudStorage")
     if os.path.exists(cloud_storage):
         for entry in sorted(glob.glob(os.path.join(cloud_storage, "GoogleDrive*"))):
+            candidates.append(os.path.join(entry, "Drive'ım", "_Akademik_", "Doktora (Gazi)", "checkpoints"))
+            candidates.append(os.path.join(entry, "Drive'im", "_Akademik_", "Doktora (Gazi)", "checkpoints"))
+            candidates.append(os.path.join(entry, "My Drive", "_Akademik_", "Doktora (Gazi)", "checkpoints"))
             candidates.append(os.path.join(entry, "Drive'ım", "checkpoints"))
             candidates.append(os.path.join(entry, "Drive'im", "checkpoints"))
             candidates.append(os.path.join(entry, "My Drive", "checkpoints"))
@@ -53,15 +60,20 @@ def find_default_checkpoints_dir():
             candidates.append(os.path.join(entry, "checkpoints"))
 
     # macOS legacy mounts & home folders
+    candidates.append(os.path.expanduser("~/Google Drive/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints"))
+    candidates.append(os.path.expanduser("~/Google Drive/My Drive/_Akademik_/Doktora (Gazi)/checkpoints"))
     candidates.append(os.path.expanduser("~/Google Drive/Drive'ım/checkpoints"))
     candidates.append(os.path.expanduser("~/Google Drive/My Drive/checkpoints"))
     candidates.append(os.path.expanduser("~/Google Drive/checkpoints"))
+    candidates.append("/Volumes/GoogleDrive/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints")
     candidates.append("/Volumes/GoogleDrive/Drive'ım/checkpoints")
     candidates.append("/Volumes/GoogleDrive/My Drive/checkpoints")
     candidates.append("/Volumes/GoogleDrive/MyDrive/checkpoints")
     candidates.append("/Volumes/GoogleDrive/checkpoints")
 
     # 3. Google Colab / Linux
+    candidates.append("/content/drive/MyDrive/_Akademik_/Doktora (Gazi)/checkpoints")
+    candidates.append("/content/drive/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints")
     candidates.append("/content/drive/MyDrive/checkpoints")
     candidates.append("/content/drive/My Drive/checkpoints")
     candidates.append("/content/drive/Drive'ım/checkpoints")
@@ -81,19 +93,24 @@ def find_default_checkpoints_dir():
     # Default platform fallback
     system = platform.system()
     if system == "Windows":
-        for cand in ["G:/Drive'ım/checkpoints", "G:/My Drive/checkpoints", "G:/checkpoints"]:
+        for cand in [
+            r"G:\Drive'ım\_Akademik_\Doktora (Gazi)\checkpoints",
+            "G:/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints",
+            "G:/Drive'ım/checkpoints",
+            "G:/checkpoints",
+        ]:
             if os.path.exists(cand):
                 return cand
-        return "G:/Drive'ım/checkpoints"
+        return r"G:\Drive'ım\_Akademik_\Doktora (Gazi)\checkpoints"
     elif system == "Darwin":
         matches = glob.glob(os.path.expanduser("~/Library/CloudStorage/GoogleDrive*"))
         if matches:
-            for sub in ["Drive'ım", "My Drive", "MyDrive"]:
+            for sub in ["Drive'ım/_Akademik_/Doktora (Gazi)", "Drive'ım", "My Drive", "MyDrive"]:
                 cand = os.path.join(matches[0], sub, "checkpoints")
                 if os.path.exists(cand):
                     return cand
-            return os.path.join(matches[0], "Drive'ım", "checkpoints")
-        return os.path.expanduser("~/Library/CloudStorage/GoogleDrive/Drive'ım/checkpoints")
+            return os.path.join(matches[0], "Drive'ım", "_Akademik_", "Doktora (Gazi)", "checkpoints")
+        return os.path.expanduser("~/Google Drive/Drive'ım/_Akademik_/Doktora (Gazi)/checkpoints")
     else:
         return "/content/drive/MyDrive/checkpoints"
 
