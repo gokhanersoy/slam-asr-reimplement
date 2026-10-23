@@ -218,21 +218,72 @@ def find_checkpoints(root_dir, model_filter=None):
 
 
 def get_existing_metrics(eval_file):
-    """Extract WER and CER from an existing eval_results file."""
-    if not os.path.exists(eval_file):
+    """Extract WER and CER from an existing eval_results file or cached summary."""
+    if not os.path.exists(eval_file) or os.path.getsize(eval_file) == 0:
         return None, None
+
+    parent_dir = os.path.dirname(eval_file)
+    summary_file = os.path.join(parent_dir, "eval_results_cv_summary.json")
+
+    # 1. Önceden oluşturulmuş hızlı özet dosyası varsa oku
+    if os.path.exists(summary_file):
+        try:
+            with open(summary_file, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                w = d.get("wer")
+                c = d.get("cer")
+                if w is not None and c is not None:
+                    return float(w), float(c)
+        except Exception:
+            pass
+
+    # 2. JSONL dosyasını incele
+    hyps, refs = [], []
     try:
         with open(eval_file, "r", encoding="utf-8") as f:
             for line in f:
-                if not line.strip():
+                line = line.strip()
+                if not line:
                     continue
                 res = json.loads(line)
-                wer = res.get("metrics", {}).get("wer") or res.get("wer")
-                cer = res.get("metrics", {}).get("cer") or res.get("cer")
-                if wer is not None and cer is not None:
-                    w = wer * 100 if wer <= 1.0 else wer
-                    c = cer * 100 if cer <= 1.0 else cer
-                    return w, c
+                # Tekil özet satırı formatı kontrolü
+                if "metrics" in res or ("wer" in res and "hypothesis" not in res):
+                    wer = res.get("metrics", {}).get("wer") or res.get("wer")
+                    cer = res.get("metrics", {}).get("cer") or res.get("cer")
+                    if wer is not None and cer is not None:
+                        w = wer * 100 if wer <= 1.0 else wer
+                        c = cer * 100 if cer <= 1.0 else cer
+                        return float(w), float(c)
+                hyps.append(res.get("hypothesis", ""))
+                refs.append(res.get("reference", ""))
+
+        if hyps and refs:
+            for cand in [
+                "tr/tsc/t5-ng-ta-gormez-tail-aug-lora",
+                "tr/tsc/t0",
+                "../tr/tsc/t5-ng-ta-gormez-tail-aug-lora",
+            ]:
+                if os.path.exists(os.path.join(cand, "slam_asr")):
+                    if cand not in sys.path:
+                        sys.path.insert(0, cand)
+                    break
+
+            try:
+                from slam_asr.utils.metrics import compute_wer, compute_cer
+                wer = compute_wer(hyps, refs, language="tr")
+                cer = compute_cer(hyps, refs, language="tr")
+                w = wer * 100 if wer <= 1.0 else wer
+                c = cer * 100 if cer <= 1.0 else cer
+
+                # Sonraki okumaları anlık kılmak için özeti Drive'a önbellekle
+                try:
+                    with open(summary_file, "w", encoding="utf-8") as sf:
+                        json.dump({"wer": round(w, 2), "cer": round(c, 2), "samples": len(hyps)}, sf, indent=2)
+                except Exception:
+                    pass
+                return float(w), float(c)
+            except Exception:
+                pass
     except Exception:
         pass
     return None, None
