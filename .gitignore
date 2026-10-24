@@ -51,3 +51,4 @@ ENV/
 *.swp
 *.swo
 *~
+/paper
