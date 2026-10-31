@@ -13,13 +13,13 @@ Mimari yenilikler (Görmez Çok Kollu Hibrit Projektör) ile parametre verimli d
 | Deney Kodu | Projektör Mimarisi | LLM Durumu | ISSAI TSC (WER) | Mozilla CV-TR (WER) | Açıklama |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`t0` (Temel / Baseline)** | Standart Doğrusal ($k=5$) | Dondurulmuş (Frozen) | %12.98 | %14.85 | Orijinal SLAM-ASR referans modeli |
-| **`t3-ng-ta-gormez`** | Görmez Hibrit (N-gram + Attn + BiGRU) | Dondurulmuş (Frozen) | %12.27 | %14.02 | Saf mimari iyileştirme kazancı ($\Delta -0.71\%$) |
+| **`t3-ng-ta-ctx`** | Görmez Hibrit (N-gram + Attn + BiGRU) | Dondurulmuş (Frozen) | %12.27 | %14.02 | Saf mimari iyileştirme kazancı ($\Delta -0.71\%$) |
 | **`t1-lora` (Bu Proje)** | **Standart Doğrusal ($k=5$)** | **PEFT LoRA ($r=16, \alpha=32$)** | *Eğitilecek* | *Eğitilecek* | **Doğrusal projektörde LoRA'nın saf etkisi** |
-| **`t4-ng-ta-gormez-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru ($\Delta -1.45\%$) |
+| **`t4-ng-ta-ctx-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru ($\Delta -1.45\%$) |
 
 ### Bu Deneyin Cevaplayacağı Bilimsel Sorular:
 1. **LoRA'nın Doğrusal Projektöre Katkısı:** `t0` (%12.98) $\to$ `t1-lora` arasındaki fark, mimari değiştirmeden sadece LoRA eklemenin sağladığı net kazancı ortaya koyar.
-2. **Görmez Hibrit Projektörün LoRA Üzerine Katkısı:** `t1-lora` $\to$ `t4-ng-ta-gormez-lora` (%11.53) arasındaki fark, LoRA varken bile Görmez hibrit projektörünün ne kadar ek kazanım sağladığını kanıtlar.
+2. **Görmez Hibrit Projektörün LoRA Üzerine Katkısı:** `t1-lora` $\to$ `t4-ng-ta-ctx-lora` (%11.53) arasındaki fark, LoRA varken bile Görmez hibrit projektörünün ne kadar ek kazanım sağladığını kanıtlar.
 
 ---
 

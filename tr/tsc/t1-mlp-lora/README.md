@@ -15,12 +15,12 @@ Mimari tasarım ile PEFT LoRA etkileşimini tam olarak haritalamak için oluştu
 | **`t0` (Temel / Baseline)** | Standart Doğrusal ($k=5$) | Dondurulmuş (Frozen) | %12.98 | %14.85 | Orijinal SLAM-ASR referans modeli |
 | **`t1-lora`** | Standart Doğrusal ($k=5$) | PEFT LoRA ($r=16, \alpha=32$) | *Eğitilecek* | *Eğitilecek* | Doğrusal projektörde LoRA'nın saf etkisi |
 | **`t1-mlp-lora` (Bu Proje)** | **2 Katmanlı MLP (ReLU, $k=5$)** | **PEFT LoRA ($r=16, \alpha=32$)** | *Eğitilecek* | *Eğitilecek* | **Doğrusal-olmayan standart MLP + LoRA** |
-| **`t3-ng-ta-gormez`** | Görmez Hibrit (N-gram + Attn + BiGRU) | Dondurulmuş (Frozen) | %12.27 | %14.02 | Saf mimari iyileştirme kazancı ($\Delta -0.71\%$) |
-| **`t4-ng-ta-gormez-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru ($\Delta -1.45\%$) |
+| **`t3-ng-ta-ctx`** | Görmez Hibrit (N-gram + Attn + BiGRU) | Dondurulmuş (Frozen) | %12.27 | %14.02 | Saf mimari iyileştirme kazancı ($\Delta -0.71\%$) |
+| **`t4-ng-ta-ctx-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru ($\Delta -1.45\%$) |
 
 ### Bu Deneyin Cevaplayacağı 2 Temel Soru:
 1. **LoRA varken Doğrusal Projektör ile Standart MLP Arasındaki Fark:** `t1-lora` $\leftrightarrow$ `t1-mlp-lora` karşılaştırması, LLM adapte edilirken projektörde 2 katmanlı standart bir MLP kullanmanın doğrusal projektöre göre anlamlı bir avantaj sağlayıp sağlamadığını gösterir.
-2. **Görmez Hibrit Mimarisinin Standart MLP'ye Üstünlüğü:** `t1-mlp-lora` $\leftrightarrow$ `t4-ng-ta-gormez-lora` karşılaştırması, `t4`'teki SOTA başarısının sadece "doğrusal-olmayan" bir projektörden mi yoksa Görmez mimarisindeki akustik n-gram, zamansal dikkat havuzlama ve çift yönlü GRU akustik hafıza bileşenlerinden mi kaynaklandığını kesin olarak kanıtlar.
+2. **Görmez Hibrit Mimarisinin Standart MLP'ye Üstünlüğü:** `t1-mlp-lora` $\leftrightarrow$ `t4-ng-ta-ctx-lora` karşılaştırması, `t4`'teki SOTA başarısının sadece "doğrusal-olmayan" bir projektörden mi yoksa Görmez mimarisindeki akustik n-gram, zamansal dikkat havuzlama ve çift yönlü GRU akustik hafıza bileşenlerinden mi kaynaklandığını kesin olarak kanıtlar.
 
 ---
 

@@ -22,7 +22,7 @@ Bu proje (`t1-tail-aug`), Türkçe konuşma tanımada sıkça gözlenen **cümle
 | **`t1-preprocess`** | Doğrusal ($k=5$) | Dondurulmuş (Frozen) | Akustik Kuyruk Koruyucu + DRC | %13.29 | %15.01 |
 | **`t1-feature-aug`** | Doğrusal ($k=5$) | Dondurulmuş (Frozen) | Genel Hız Değişimi + SpecAugment | %13.17 | %15.22 |
 | **`t1-tail-aug` (Bu Proje)** | **Doğrusal ($k=5$)** | **Dondurulmuş (Frozen)** | **Hedefe Yönelik Kuyruk Hızlandırma + Sönümleme** | *Eğitilecek* | *Eğitilecek* |
-| **`t4-ng-ta-gormez-lora`** | Görmez Hibrit | PEFT LoRA ($r=16, \alpha=32$) | Yok (Standart) | **%11.53** | **%13.16** |
+| **`t4-ng-ta-ctx-lora`** | Görmez Hibrit | PEFT LoRA ($r=16, \alpha=32$) | Yok (Standart) | **%11.53** | **%13.16** |
 
 ---
 

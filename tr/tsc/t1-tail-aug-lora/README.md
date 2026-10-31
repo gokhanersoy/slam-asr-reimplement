@@ -16,7 +16,7 @@ Dil modeli adaptasyonu (LoRA) ile hedefli kuyruk veri artırmasının etkilerini
 | **`t1-lora`** | Standart Doğrusal ($k=5$) | PEFT LoRA ($r=16, \alpha=32$) | Yok (Standart) | *Eğitilecek* | *Eğitilecek* | Doğrusal projektörde LoRA'nın saf etkisi |
 | **`t1-tail-aug`** | Standart Doğrusal ($k=5$) | Dondurulmuş (Frozen) | Kuyruk Hızlandırma + Sönümleme | *Eğitilecek* | *Eğitilecek* | Dondurulmuş modelde kuyruk artırmasının saf etkisi |
 | **`t1-tail-aug-lora` (Bu Proje)** | **Standart Doğrusal ($k=5$)** | **PEFT LoRA ($r=16, \alpha=32$)** | **Kuyruk Hızlandırma + Sönümleme** | *Eğitilecek* | *Eğitilecek* | **LoRA + Kuyruk Artırması Sinerjisi** |
-| **`t4-ng-ta-gormez-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | Yok (Standart) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru |
+| **`t4-ng-ta-ctx-lora`** | Görmez Hibrit (N-gram + Attn + BiGRU) | PEFT LoRA ($r=16, \alpha=32$) | Yok (Standart) | **%11.53** | **%13.16** | Tüm zamanların SOTA rekoru |
 
 ### Bu Deneyin Cevaplayacağı Bilimsel Sorular:
 1. **LoRA varken Kuyruk Artırması İlave Kazanç Sağlar mı?**  

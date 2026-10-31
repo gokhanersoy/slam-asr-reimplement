@@ -259,9 +259,9 @@ def get_existing_metrics(eval_file):
 
         if hyps and refs:
             for cand in [
-                "tr/tsc/t5-ng-ta-gormez-tail-aug-lora",
+                "tr/tsc/t5-ng-ta-ctx-tail-aug-lora",
                 "tr/tsc/t0",
-                "../tr/tsc/t5-ng-ta-gormez-tail-aug-lora",
+                "../tr/tsc/t5-ng-ta-ctx-tail-aug-lora",
             ]:
                 if os.path.exists(os.path.join(cand, "slam_asr")):
                     if cand not in sys.path:
@@ -366,14 +366,14 @@ def main():
         return
 
     # Evaluate script
-    eval_script = "tr/tsc/t5-ng-ta-gormez-tail-aug-lora/evaluate.py"
+    eval_script = "tr/tsc/t5-ng-ta-ctx-tail-aug-lora/evaluate.py"
     if not os.path.exists(eval_script):
         eval_script = "evaluate.py"
     if not os.path.exists(eval_script):
         for cand in [
-            "tr/tsc/t4-ng-ta-gormez-lora/evaluate.py",
-            "tr/cv/t5-ng-ta-gormez-tail-aug-lora/evaluate.py",
-            "../tr/tsc/t5-ng-ta-gormez-tail-aug-lora/evaluate.py",
+            "tr/tsc/t4-ng-ta-ctx-lora/evaluate.py",
+            "tr/cv/t5-ng-ta-ctx-tail-aug-lora/evaluate.py",
+            "../tr/tsc/t5-ng-ta-ctx-tail-aug-lora/evaluate.py",
         ]:
             if os.path.exists(cand):
                 eval_script = cand
@@ -387,7 +387,7 @@ def main():
         # Config dosyası: Önce Drive klasöründeki hardware_adaptive_turkish.yaml, yoksa repo içi fallback
         config_path = os.path.join(fdir, "hardware_adaptive_turkish.yaml")
         if not os.path.exists(config_path):
-            config_path = "tr/tsc/t5-ng-ta-gormez-tail-aug-lora/config/hardware_adaptive_turkish.yaml"
+            config_path = "tr/tsc/t5-ng-ta-ctx-tail-aug-lora/config/hardware_adaptive_turkish.yaml"
 
         cmd = [
             sys.executable,
