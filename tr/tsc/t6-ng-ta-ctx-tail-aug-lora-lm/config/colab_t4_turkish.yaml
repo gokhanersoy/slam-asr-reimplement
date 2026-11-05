@@ -1,6 +1,7 @@
-# Turkish SLAM-ASR (t6-ng-ta-ctx-tail-aug-lora-lm): Görmez Hybrid Projector + PEFT LoRA + Tail Augmentation + Zemberek LM
+# Turkish SLAM-ASR (t6-ng-ta-ctx-tail-aug-lora-lm):
+# Dual-Branch Context Projector + PEFT LoRA + Tail Augmentation + Zemberek Language Model
 # Optimized for Google Colab (T4 16GB) & Local RTX A4000 (16GB)
-# Pairs OpenAI Whisper-Large-v3 audio encoder with Qwen2.5-7B (4-bit NF4 Quantization) + Zemberek Morphological LM Rescorer
+# Pairs OpenAI Whisper-Large-v3 audio encoder with Qwen2.5-7B (4-bit NF4 Quantization) + Zemberek LM Support
 
 model:
   speech_encoder_name_or_path: "openai/whisper-large-v3"
@@ -41,7 +42,7 @@ data:
   tail_aug_prob: 0.8
 
 training:
-  output_dir: "./outputs/slam_asr_turkish_colab_t6_lm"
+  output_dir: "./outputs/slam_asr_turkish_colab_t6"
   learning_rate: 0.0001
   weight_decay: 0.0
   warmup_steps: 1000
@@ -54,10 +55,10 @@ training:
   fp16: false
   bf16: true
 
-# Zemberek Turkish Language Model & Morphological Rescorer
+# Zemberek Language Model (Görmez 2024 Support)
 lm:
   use_zemberek_lm: true
-  zemberek_jar_path: "tools/zemberek-full.jar"
   ngram_order: 3
-  lm_weight: 0.35
-  alpha_smoothing: 0.05
+  lm_weight: 0.3
+  smoothing_weight: 0.4
+  mode: "hybrid"  # "rescore", "correct", or "hybrid"

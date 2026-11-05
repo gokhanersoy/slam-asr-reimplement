@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI script to transcribe audio files using SLAM-ASR."""
+"""CLI script to transcribe audio files using SLAM-ASR with Zemberek Language Model."""
 
 import argparse
 import os
@@ -9,16 +9,21 @@ import torch
 from slam_asr.models.slam_model import SLAM_ASR, SLAMASRConfig
 from slam_asr.data.audio_processor import AudioProcessor
 from slam_asr.utils.device_utils import resolve_auto_hyperparameters
+from slam_asr.utils.zemberek_lm import ZemberekLanguageModel
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Transcribe audio using SLAM-ASR")
+    parser = argparse.ArgumentParser(description="Transcribe audio using SLAM-ASR with Zemberek LM")
     parser.add_argument("--audio", type=str, required=True, help="Path to input audio file (.wav, .flac, .mp3)")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to projector weights (projector.pt)")
     parser.add_argument("--prompt", type=str, default="Konuşmayı metne dönüştürün.", help="Instruction prompt")
     parser.add_argument("--beam_size", type=int, default=4, help="Beam size for decoding")
     parser.add_argument("--device", type=str, default=None, help="Device to use (cuda, mps, cpu)")
+    parser.add_argument("--use_zemberek_lm", action="store_true", default=True, help="Apply Zemberek Language Model correction")
+    parser.add_argument("--no_zemberek_lm", dest="use_zemberek_lm", action="store_false", help="Disable Zemberek LM")
+    parser.add_argument("--lm_file", type=str, default=None, help="Path to precomputed Zemberek n-gram LM file")
+    parser.add_argument("--train_manifest", type=str, default=None, help="Path to training manifest for in-domain LM")
     return parser.parse_args()
 
 
@@ -97,7 +102,7 @@ def main():
         raise FileNotFoundError(f"Audio file not found: {args.audio}")
 
     print(f"[*] Processing audio: {args.audio}")
-    speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device)  # (1, samples) or (1, mels, 3000)
+    speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device)
 
     model_dtype_str = getattr(model_config, "dtype", None) or getattr(model_config, "torch_dtype", "float32")
     use_amp = (model_dtype_str in ("float16", "bfloat16")) and device.type == "cuda"
@@ -112,23 +117,35 @@ def main():
     with torch.no_grad():
         if use_amp:
             with autocast_ctx():
-                transcription = model.generate(
+                raw_transcription = model.generate(
                     speech_inputs=speech_tensor,
                     prompts=[args.prompt],
                     num_beams=args.beam_size,
                 )[0]
         else:
-            transcription = model.generate(
+            raw_transcription = model.generate(
                 speech_inputs=speech_tensor,
                 prompts=[args.prompt],
                 num_beams=args.beam_size,
             )[0]
 
-    print("\n" + "=" * 50)
-    print(f"Audio:          {args.audio}")
-    print(f"Prompt:         {args.prompt}")
-    print(f"Transcription:  {transcription}")
-    print("=" * 50)
+    lm_transcription = raw_transcription
+    if args.use_zemberek_lm:
+        train_man = args.train_manifest or data_cfg.get("train_manifest")
+        manifest_to_use = train_man if (train_man and os.path.exists(train_man)) else None
+        zemberek_lm = ZemberekLanguageModel(
+            manifest_path=manifest_to_use,
+            lm_file=args.lm_file,
+        )
+        lm_transcription = zemberek_lm.correct_sentence(raw_transcription)
+
+    print("\n" + "=" * 55)
+    print(f"Audio:                 {args.audio}")
+    print(f"Prompt:                {args.prompt}")
+    print(f"Raw ASR Hypothesis:    {raw_transcription}")
+    if args.use_zemberek_lm:
+        print(f"Zemberek LM Refined:   {lm_transcription}")
+    print("=" * 55)
 
 
 if __name__ == "__main__":

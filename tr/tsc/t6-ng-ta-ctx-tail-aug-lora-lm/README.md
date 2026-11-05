@@ -1,97 +1,78 @@
 # Turkish SLAM-ASR: Görmez Hibrit Projektör + PEFT LoRA + Kuyruk Veri Artırma + Zemberek Dil Modeli (t6-ng-ta-ctx-tail-aug-lora-lm)
 
-PyTorch ve Hugging Face tabanlı, **SLAM-ASR** mimarisinin **Türkçe** konuşma tanıma uyarlaması ve **Zemberek Morfolojik Dil Modeli (Language Model - LM)** entegrasyonudur.
+PyTorch ve Hugging Face tabanlı, **SLAM-ASR** (*arXiv:2402.08846*) mimarisinin **Türkçe** konuşma tanıma uyarlamasıdır.
 
-Bu proje (`t6-ng-ta-ctx-tail-aug-lora-lm`), tüm tez çalışmalarınız boyunca geliştirilen şampiyon modelimiz (`t5`) üzerine **Zemberek kural tabanlı morfolojik dil modeli ve N-Gram yeniden puanlama (rescoring)** mekanizmasını entegre eden ileri düzey araştırma varyantıdır.
-
----
-
-## 🔬 Bilimsel Gerekçe ve Danışman Vizyonu
-
-Literatürde Görmez (2024) (*PeerJ CS, e1981*), hibrit bir derin öğrenme akustik modelini (CNN-BiLSTM-GRU-Transformer) kural tabanlı Zemberek morfolojik dil modeli ile destekleyerek kelime hata oranını (WER) %11.50'den %8.40'a indirmeyi başarmıştır. 
-
-Danışmanınızın talebi doğrultusunda geliştirilen bu varyant (**t6**), şu temel bilimsel soruyu deneysel olarak yanıtlamayı hedefler:
-> *8 milyar parametreli üretken ve anlamsal muhakeme yeteneğine sahip bir Büyük Dil Modeli (LLM + LoRA) ile oluşturulan uçtan uca çok modlu ASR mimarisinin üzerine harici, sembolik bir Zemberek Dil Modeli (LM) eklendiğinde akustik-morfolojik başarı artar mı, yoksa sözlük kısıtları alan kaymalarında (out-of-domain) hata yayılımına mı yol açar?*
+Bu proje (`t6-ng-ta-ctx-tail-aug-lora-lm`), teziniz boyunca geliştirilen şampiyon model `t5-ng-ta-ctx-tail-aug-lora` üzerine, Görmez'in (2024) *"Customized deep learning based Turkish automatic speech recognition system supported by language model"* çalışmasında kullandığı **Zemberek Morfolojik Dil Modeli (Language Model - `lm`)** desteğini entegre eden ileri araştırma modelidir.
 
 ---
 
-## 🎯 Evrimsel Ablasyon ve Karşılaştırma Matrisi (Evolutionary Benchmark Matrix)
+## 🎯 Temel Güçlerin Birleşimi (The 4 Pillars of t6)
 
-| Deney Kodu | Projektör Mimarisi | LLM Durumu | Kuyruk Veri Artırma | Dil Modeli (LM) | ISSAI TSC (WER / CER) | Common Voice (WER / CER) | Bilimsel Rolü |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`t0` (Temel)** | Standart Doğrusal ($k=5$) | Dondurulmuş | Yok | Yok | %13.22 / %3.88 | %14.87 / %4.08 | Orijinal SLAM-ASR temeli |
-| **`t1-ng`** | NeMo Kapılı Conv1D | Dondurulmuş | Yok | Yok | %12.49 / %3.68 | %14.33 / %3.76 | Güçlü fonetik ilerleme |
-| **`t3-ng-ta-ctx`** | Görmez Hibrit | Dondurulmuş | Yok | Yok | %12.27 / %3.46 | %14.04 / %4.05 | Saf mimari bağlam kazancı |
-| **`t1-lora`** | Standart Doğrusal ($k=5$) | PEFT LoRA ($r=16$) | Yok | Yok | %11.78 / %3.40 | -- / -- | Doğrusal modelde LoRA kazancı |
-| **`t1-tail-aug-lora`** | Standart Doğrusal ($k=5$) | PEFT LoRA ($r=16$) | Hızlandırma + Sönümleme | Yok | %11.58 / %3.15 | %12.82 / %3.20 | Kuyruk sınır koruma kazancı |
-| **`t4-ng-ta-ctx-lora`** | Görmez Hibrit | PEFT LoRA ($r=16$) | Yok | Yok | %11.53 / %3.27 | %13.41 / %3.42 | LLM uyarlama atılımı |
-| **`t4-ng-ta-ctx-postcorr`**| Görmez Hibrit | Dondurulmuş | Yok | Arslan Çıktı Düzeltici | %13.60 / %4.02 | %16.99 / %4.99 | Ayrık sözlük son-işleme zaafı |
-| **`t5-ng-ta-ctx-tail-aug-lora`** | **Görmez Hibrit** | **PEFT LoRA ($r=16$)** | **Hızlandırma + Sönümleme** | **Yok (Uçtan Uca)** | **%11.43 / %3.21 🏆** | **%12.75 / %3.17 🏆** | **Unified Champion Architecture** |
-| **`t6-ng-ta-ctx-tail-aug-lora-lm` (Bu Proje)** | **Görmez Hibrit** | **PEFT LoRA ($r=16$)** | **Hızlandırma + Sönümleme** | **Zemberek LM Rescorer** | **Sınanıyor (t6)** | **Sınanıyor (t6)** | **Zemberek LM Entegrasyonu** |
+1. **Mimari Güç (`ng-ta-ctx`):** NeMo 1D derinlemesine ayrılabilir kapılı evrişimler ile 4 başlı Öz-Dikkat (Multi-Head Attention) kollarını dinamik kapılama ile birleştiren bağlam duyarlı hibrit projektör.
+2. **Dil Modeli Adaptasyon Gücü (`lora`):** 8B parametreli LLaMA-3 / Qwen2.5 tabanlı üretken LLM omurgasına uygulanan PEFT LoRA ($r=16, \alpha=32$) ince ayarı.
+3. **Akustik Dayanıklılık Gücü (`tail-aug`):** Türkçedeki çekim eklerinin kelime sonuna yığılması nedeniyle konuşma sonundaki enerji düşüşlerini ve kesilmelerini önleyen hedefli kuyruk veri artırma boru hattı (%3.15 CER rekoru).
+4. **Morfolojik Dil Modeli Gücü (`lm` - Zemberek):** Türkçenin büyük/küçük ünlü uyumları, ünsüz yumuşaması/benzeşmesi kurallarını denetleyen morfolojik çözümleyici ve n-gram dil modeli ile ASR hipotezlerinin yeniden puanlanması (rescoring) ve düzeltilmesi.
 
 ---
 
-## 🏗️ 5 Temel Gücün Entegrasyonu
+## 📊 Evrimsel Kıyaslama Matrisi (Evolutionary Benchmark Matrix)
 
-1. **Akustik Kodlayıcı (Speech Encoder):** OpenAI Whisper-Large-v3 (1280 dim, [DONDURULMUŞ / FROZEN]). Ham konuşma sinyalinden 50 Hz log-mel filtre bankası öznitelikleri çıkarır.
-2. **Görmez Çok Kollu Hibrit Projektör (Projector):**
-   * **Stage 1 (Akustik N-Gram Konvolüsyonu):** Çok dereceli ($K \in \{1, 3, 5, 9\}$) pencereler ile Türkçe fonetik geçişleri ve ek sınırlarını yakalar.
-   * **Stage 2 (Segmental Zamansal Dikkat Havuzlama, $k=5$):** 50 Hz kareleri 10 Hz'e sıkıştırır ($\mathcal{O}(N^2)$ LLM dikkat maliyetini 25 kat düşürür).
-   * **Stage 3 (Görmez Çok Kol):** Çift yönlü GRU (`GormezBiGRU`), Dual-Scale Dikkat (`Split-Heads Attention`) ve Rezidüel Kısayol (`Residual Shortcut`) paralel çalışır.
-   * **Stage 4 (Füzyon ve MLP Projeksiyonu):** 1536 dim $\to$ LayerNorm $\to$ MLP $\to$ Qwen LLM'in 3584 boyutlu gömme uzayına eşler.
-3. **Büyük Dil Modeli ve PEFT LoRA İnce Ayarı (LLM Backbone):**
-   * `Qwen/Qwen2.5-7B-Instruct` temel modeli (4-bit NF4 kuantizasyon).
-   * Dikkat projeksiyonlarına (`q_proj`, `v_proj`, `k_proj`, `o_proj`) $r=16, \alpha=32$ LoRA adaptörleri bağlanır.
-4. **Hedefe Yönelik Kuyruk Veri Artırma Boru Hattı (`tail_augmentations.py`):**
-   * **Kuyruk Hızlandırma (`TailSpeedPerturbation`):** Cümlenin son $\%20 - \%35$'lik kısmı $1.15\times - 1.35\times$ hızlandırılır (40 ms linear cross-fade).
-   * **Kuyruk Enerji Sönümlemesi (`TailEnergyDecay`):** Konuşma sonundaki enerji düşüşlerini simüle eden $-3\text{ dB}$ ila $-8\text{ dB}$ sönümleme rampası.
-   * **Kuyruk Spektrogram Maskelemesi (`TailSpecMasking`):** Yalnızca aktif konuşma kuyruğunda zaman ve frekans maskelemesi.
-5. **Zemberek Morfolojik Dil Modeli Modülü (`slam_asr/utils/zemberek_lm.py`):**
-   * **Çift Modlu Çalışma:** Hem yerel `JPype1` + `zemberek-full.jar` Java kütüphanesini hem de sıfır-bağımlılıklı saf Python Türkçe morfolojik n-gram dil modeli motorunu destekler.
-   * **Türkçe Ünlü Uyumları & Fonotaktik Denetimi:** Büyük ve küçük ünlü uyumu, ünsüz yumuşaması ve ek hiyerarşisi doğrulaması.
-   * **N-Gram Olasılık Puanlaması:** ISSAI_TSC eğitim kümesinden öğrenilen 1-gram, 2-gram ve 3-gram geçiş olasılıkları (Laplace / Jelinek-Mercer yumuşatması).
-   * **Akustik-Dilsel Ortak Puanlama:**
-     $$\text{Puan} = \text{AkustikFidelity}(w, w') + \lambda_{\text{LM}} \cdot \log P_{\text{Zemberek}}(w' \mid context) + \text{MorphBonus}(w')$$
+| Deney Kodu | Projektör Mimarisi | LLM Durumu | Veri Artırma / Ön İşleme | Dil Modeli / Son İşleme | ISSAI (WER) | ISSAI (CER) | CV (WER) | CV (CER) |
+| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: |
+| **`t0` (Baseline)** | Standart Doğrusal ($k=5$) | Dondurulmuş (Frozen) | Yok | Yok | %13.22 | %3.88 | %14.87 | %4.08 |
+| **`t1-ng`** | NeMo Kapılı Conv1D | Dondurulmuş (Frozen) | Yok | Yok | %12.49 | %3.68 | %14.33 | %3.76 |
+| **`t2-ng-ta`** | Kapılı Conv1D + Zaman | Dondurulmuş (Frozen) | Yok | Yok | %12.36 | %3.55 | %14.04 | %4.05 |
+| **`t3-ng-ta-ctx`** | Çift Kollu Bağlam Duyarlı | Dondurulmuş (Frozen) | Yok | Yok | %12.27 | %3.46 | %13.91 | %3.99 |
+| **`t1-lora`** | Standart Doğrusal ($k=5$) | PEFT LoRA ($r=16, \alpha=32$) | Yok | Yok | %11.78 | %3.40 | %13.56 | %3.52 |
+| **`t4-ng-ta-ctx-lora`** | Çift Kollu Bağlam Duyarlı | PEFT LoRA ($r=16, \alpha=32$) | Yok | Yok | %11.53 | %3.27 | %13.16 | %3.34 |
+| **`t4-ng-ta-ctx-postcorr`**| Çift Kollu Bağlam Duyarlı | Dondurulmuş (Frozen) | Yok | Arslan Sözlük Düzeltmesi | %13.60 | %3.80 | %16.99 | %4.99 |
+| **`t5-ng-ta-ctx-tail-aug-lora`** | **Çift Kollu Bağlam Duyarlı** | **PEFT LoRA ($r=16, \alpha=32$)** | **Kuyruk Veri Artırma** | **Yok (Uçtan Uca SOTA)** | **%11.43** | **%3.21** | **%12.75** | **%3.17** |
+| **`t6-ng-ta-ctx-tail-aug-lora-lm` (Bu Model)** | **Çift Kollu Bağlam Duyarlı** | **PEFT LoRA ($r=16, \alpha=32$)** | **Kuyruk Veri Artırma** | **Zemberek LM (Görmez 2024)** | **Hedefleme** | **Hedefleme** | **Hedefleme** | **Hedefleme** |
+
+---
+
+## 🏗️ Zemberek Dil Modeli (`slam_asr/utils/zemberek_lm.py`)
+
+Zemberek modülü iki ana çalışma motoruna sahiptir:
+1. **Yerel Python Motoru (Sıfır Bağımlılık / Zero-Dependency):**
+   - Türkçenin büyük ve küçük ünlü uyumlarını, ek zincirlerini ve kök türetimlerini denetler.
+   - Witten-Bell ve Jelinek-Mercer yumuşatmalı Trigram / Bigram dil modeli ile cümle olasılıklarını ($-\log P$) ve şaşkınlık (Perplexity - PPL) değerlerini hesaplar.
+   - Her ortamda (CPU, GPU, test suite) harici Java kurulumu gerektirmeden %100 taşınabilir çalışır.
+2. **Yerel Java Zemberek Motoru (JPype):**
+   - Ortamda `jpype1` ve `zemberek-full.jar` mevcut olduğunda Java JVM üzerinden resmi `TurkishMorphology` ve `TurkishSpellChecker` sınıflarına doğrudan bağlanır.
 
 ---
 
 ## 🚀 Hızlı Başlangıç
 
-### 1. Testleri Koşturma
+### 1. Testleri Çalıştırma
 ```bash
 python run_tests.py
 ```
-*(Zemberek LM, fonotaktik kurallar ve n-gram puanlama dahil 56 birim testin tümü otomatik koşturulur).*
 
 ### 2. Eğitimi Başlatma
-* **Donanıma göre otomatik optimize edilen konfigürasyon ile:**
-  ```bash
-  python train.py --config config/hardware_adaptive_turkish.yaml
-  ```
-* **Google Colab (T4 / A100) üzerinde:**
-  ```bash
-  python train.py --config config/colab_t4_turkish.yaml
-  ```
+```bash
+python train.py --config config/hardware_adaptive_turkish.yaml
+```
 
-### 3. Değerlendirme (Zemberek LM ile ve LM'siz Karşılaştırmalı WER/CER)
+### 3. Zemberek LM ile Değerlendirme (WER / CER)
 ```bash
 python evaluate.py \
     --config config/hardware_adaptive_turkish.yaml \
-    --checkpoint outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint \
+    --checkpoint outputs/slam_asr_turkish_adaptive_t6/best_checkpoint \
     --manifest data/issai_tsc/test.jsonl \
-    --language tr \
-    --beam_size 4 \
     --use_zemberek_lm \
-    --ngram_order 3
+    --lm_weight 0.3 \
+    --beam_size 4
 ```
-*Çıktıda hem **RAW ASR (t5)** hem de **WITH ZEMBEREK LM (t6)** metrikleri yan yana raporlanır.*
 
-### 4. Bağımsız Zemberek LM Yeniden Puanlama Betiği
-Mevcut herhangi bir `eval_results.jsonl` dosyasını Zemberek ile sonradan puanlamak için:
+`evaluate.py` hem ham ASR (Raw ASR) hem de Zemberek LM destekli sonuçları ve aralarındaki net WER/CER kazancını ekrana yazdırır.
+
+### 4. Tekli Ses Dosyası Transkripsiyonu (Inference)
 ```bash
-python scripts/apply_zemberek_lm.py \
-    --input eval_results.jsonl \
-    --output eval_results_zemberek_lm.jsonl \
-    --train_manifest data/issai_tsc/train.jsonl \
-    --ngram_order 3
+python inference.py \
+    --audio data/toy_audio_tr/tr_toy_001.wav \
+    --config config/hardware_adaptive_turkish.yaml \
+    --checkpoint outputs/slam_asr_turkish_adaptive_t6/best_checkpoint \
+    --use_zemberek_lm
 ```

@@ -1,6 +1,7 @@
 # Hardware-Adaptive Turkish SLAM-ASR Configuration (t6-ng-ta-ctx-tail-aug-lora-lm)
 # Automatically optimizes precision, quantization, batch size, and workers
 # for the active GPU (RTX A4000, Colab T4, L4, A100, Apple Silicon MPS, or CPU).
+# Includes Zemberek Language Model rescoring/post-processing (Görmez 2024 Support).
 
 model:
   speech_encoder_name_or_path: "openai/whisper-large-v3"
@@ -47,7 +48,7 @@ data:
   tail_aug_prob: 0.8
 
 training:
-  output_dir: "./outputs/slam_asr_turkish_adaptive_t6_lm"
+  output_dir: "./outputs/slam_asr_turkish_adaptive_t6"
   learning_rate: 0.0001
   weight_decay: 0.0
   warmup_steps: 1000
@@ -60,10 +61,10 @@ training:
   fp16: "auto"
   bf16: "auto"
 
-# Zemberek Turkish Language Model & Morphological Rescorer
+# Zemberek Language Model (Görmez 2024 Support)
 lm:
   use_zemberek_lm: true
-  zemberek_jar_path: "tools/zemberek-full.jar"
   ngram_order: 3
-  lm_weight: 0.35
-  alpha_smoothing: 0.05
+  lm_weight: 0.3
+  smoothing_weight: 0.4
+  mode: "hybrid"  # "rescore", "correct", or "hybrid"

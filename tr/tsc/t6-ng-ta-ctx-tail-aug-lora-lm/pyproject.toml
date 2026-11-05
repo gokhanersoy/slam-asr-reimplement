@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "slam-asr"
 version = "0.1.0"
-description = "Turkish SLAM-ASR: Görmez Hybrid Projector + PEFT LoRA + Tail Augmentation + Zemberek Language Model (t6-ng-ta-ctx-tail-aug-lora-lm)"
+description = "PyTorch Reimplementation of SLAM-ASR: An Embarrassingly Simple Approach for LLM with Strong ASR Capacity (arXiv:2402.08846)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

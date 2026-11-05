@@ -13,5 +13,6 @@ pytest>=7.4.0
 bitsandbytes>=0.41.0
 peft>=0.7.0
 torchao>=0.16.0
-# Optional for native Java Zemberek Bridge
-jpype1>=1.4.0
+
+# Optional: Native Java Zemberek bindings via JPype
+# jpype1>=1.4.0

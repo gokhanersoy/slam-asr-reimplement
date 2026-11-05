@@ -1,15 +1,20 @@
-"""Zemberek Turkish Morphological Language Model & Output Rescorer.
+"""Zemberek Morphological Language Model & Rescorer for Turkish ASR.
 
-References:
-- Akin, A. A., & Akin, M. D. "Zemberek: An open source NLP framework for Turkic languages."
-- Görmez, Y. (2024). "Customized deep learning based Turkish automatic speech recognition
-  system supported by language model." PeerJ Computer Science, 10, e1981.
+Inspired by Görmez (2024):
+"Customized deep learning based Turkish automatic speech recognition system supported
+by language model", PeerJ Computer Science, 10, e1981.
 
-This module provides a unified interface for Turkish Language Model (LM) rescoring and
-morphological output correction, supporting both:
-1. Native Zemberek Java Bridge (via JPype1 and zemberek-full.jar) when available.
-2. Built-in Pure-Python Turkish Morphological & N-Gram Language Model Engine (Zero-dependency fallback),
-   ensuring full operational functionality across any platform (Colab, Linux, Mac, Windows).
+This module implements:
+1. Turkish Morphological Analysis & Rule Validation (vowel harmony, consonant softening,
+   valid inflectional suffix chains).
+2. Smoothed N-Gram Language Model (Trigram / Bigram with Witten-Bell & Jelinek-Mercer smoothing)
+   capable of training on in-domain manifests (e.g. ISSAI_TSC_218) or pre-built n-gram models.
+3. Beam Hypothesis Rescoring:
+      Score(W) = Score_ASR(W) + lm_weight * (log P_LM(W) / len(W)) + word_bonus * len(W)
+4. Morphologically-Guided Output Correction & Spell Disambiguation.
+5. Dual Engine Architecture:
+   - Native Zemberek Java Engine (via JPype1 and zemberek-full.jar) when available.
+   - Built-in Pure-Python Zemberek Engine for 100% portable zero-dependency execution.
 """
 
 from collections import Counter, defaultdict
@@ -17,83 +22,59 @@ import json
 import math
 import os
 import re
-from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from slam_asr.utils.metrics import normalize_text_turkish
 
 
-# ============================================================================
-# Core Turkish Phonological and Grammatical Constants
-# ============================================================================
+# Turkish vowel harmony definitions
+BACK_VOWELS = set("aıou")
+FRONT_VOWELS = set("eiöü")
+UNROUNDED_VOWELS = set("aıei")
+ROUNDED_VOWELS = set("ouöü")
+ALL_TURKISH_VOWELS = BACK_VOWELS | FRONT_VOWELS
 
-TURKISH_FRONT_VOWELS = set("eiöüEİÖÜ")
-TURKISH_BACK_VOWELS = set("aıouAIOU")
-TURKISH_ALL_VOWELS = TURKISH_FRONT_VOWELS | TURKISH_BACK_VOWELS
+# Turkish consonant classifications
+VOICELESS_CONSONANTS = set("çfhkpsşt")
+VOICED_CONSONANTS = set("bcdgğjlmnrvyz")
+MUTABLE_CONSONANTS = {"p": "b", "ç": "c", "t": "d", "k": "ğ"}
 
-TURKISH_VOICELESS_CONSONANTS = set("çfhkpstşÇFHKPSTŞ")  # Fıstıkçı Şahap
-TURKISH_VOICED_CONSONANTS = set("bcdgğjlmnrvyzBCDGĞJLMNRVYZ")
-
-# Suffix templates according to 2-way (A/E) and 4-way (I/İ/U/Ü) vowel harmony
-A_TYPE_HARMONY = {"front": "e", "back": "a"}
-I_TYPE_HARMONY = {"front_unrounded": "i", "front_rounded": "ü", "back_unrounded": "ı", "back_rounded": "u"}
-
-COMMON_TURKISH_SUFFIXES = [
-    # Plural
-    "lar", "ler",
-    # Case endings
-    "da", "de", "ta", "te", "dan", "den", "tan", "ten", "a", "e", "ya", "ye", "ı", "i", "u", "ü", "yı", "yi", "yu", "yü",
-    "ın", "in", "un", "ün", "nın", "nin", "nun", "nün",
-    # Possessive
-    "ım", "im", "um", "üm", "mız", "miz", "muz", "müz", "ımız", "imiz", "umuz", "ümüz",
-    "ın", "in", "un", "ün", "nız", "niz", "nuz", "nüz", "ınız", "iniz", "unuz", "ünüz",
-    "ı", "i", "u", "ü", "sı", "si", "su", "sü", "ları", "leri",
-    # Derivational / Copula
-    "lı", "li", "lu", "lü", "sız", "siz", "suz", "süz", "lık", "lik", "luk", "lük",
-    "dır", "dir", "dur", "dür", "tır", "tir", "tur", "tür",
-    # Verbal tenses & aspects
-    "dı", "di", "du", "dü", "tı", "ti", "tu", "tü",
-    "mış", "miş", "muş", "müş",
-    "ıyor", "iyor", "uyor", "üyor",
-    "acak", "ecek", "yacak", "yecek",
-    "malı", "meli", "ar", "er", "ır", "ir", "ur", "ür",
-    "maz", "mez", "ma", "me",
-    # Verbal person
-    "k", "n", "m", "nız", "niz", "nuz", "nüz",
-    # Combined multi-suffix clusters
-    "larında", "lerinde", "larından", "lerinden", "larına", "lerine",
+# Common Turkish grammatical suffixes (inflectional & derivational)
+TURKISH_SUFFIX_CATALOG = (
+    # Plural & Case Suffixes
+    "larda", "lerde", "lardan", "lerden", "lara", "lere", "ların", "lerin", "ları", "leri",
     "ımızda", "imizde", "umuzda", "ümüzde", "ımızdan", "imizden", "umuzdan", "ümüzden",
-    "ındaki", "indeki", "unduki", "ündeki", "undaki", "ündeki",
-    "acaktı", "ecekti", "yacaktı", "yecekti", "mıştı", "mişti", "muştu", "müştü",
-    "ıyordu", "iyordu", "uyordu", "üyordu",
-]
-
-
-def check_vowel_harmony(stem: str, suffix: str) -> bool:
-    """Check whether a suffix satisfies Turkish major vowel harmony (Kalınlık-İncelik)."""
-    stem_vowels = [c for c in stem if c in TURKISH_ALL_VOWELS]
-    suffix_vowels = [c for c in suffix if c in TURKISH_ALL_VOWELS]
-    if not stem_vowels or not suffix_vowels:
-        return True
-    last_stem_vowel = stem_vowels[-1]
-    is_stem_back = last_stem_vowel in TURKISH_BACK_VOWELS
-    for sv in suffix_vowels:
-        is_suffix_back = sv in TURKISH_BACK_VOWELS
-        if is_stem_back != is_suffix_back:
-            # Special exceptions in Turkish (e.g. -ken, -ki, -yor)
-            if suffix in ("ken", "ki", "yor", "iyor", "ıyor", "uyor", "üyor"):
-                continue
-            return False
-    return True
+    "ımıza", "imize", "umuza", "ümüze", "ımızı", "imizi", "umuzu", "ümüzü",
+    "dan", "den", "tan", "ten", "da", "de", "ta", "te",
+    "ya", "ye", "a", "e", "yı", "yi", "yu", "yü", "ı", "i", "u", "ü",
+    "nın", "nin", "nun", "nün", "ın", "in", "un", "ün",
+    "lar", "ler", "lık", "lik", "luk", "lük", "sız", "siz", "suz", "süz",
+    "lı", "li", "lu", "lü", "cu", "cü", "cı", "ci", "çı", "çi", "çu", "çü",
+    # Verb Conjugation & Participles
+    "mak", "mek", "ma", "me", "makta", "mekte",
+    "arak", "erek", "yarak", "yerek", "ınca", "ince", "ken",
+    "acak", "ecek", "yacak", "yecek", "acağım", "eceğim", "acaksın", "eceksin",
+    "ıyor", "iyor", "uyor", "üyor", "yor", "ıyordu", "iyordu", "uyordu", "üyordu",
+    "mış", "miş", "muş", "müş", "mıştı", "mişti", "muştu", "müştü",
+    "dı", "di", "du", "dü", "tı", "ti", "tu", "tü",
+    "dık", "dik", "duk", "dük", "tık", "tik", "tuk", "tük",
+    "dıkları", "dikleri", "dukları", "dükleri",
+    "dığım", "diğim", "duğum", "düğüm",
+    "dığı", "diği", "duğu", "düğü",
+    "r", "ar", "er", "ır", "ir", "ur", "ür",
+    "rim", "riz", "sin", "siniz", "sunuz", "sünüz", "lar", "ler",
+)
 
 
 def fast_levenshtein(s1: str, s2: str) -> int:
-    """Compute Levenshtein edit distance between two strings."""
+    """Two-row dynamic programming Levenshtein distance."""
     if s1 == s2:
         return 0
     if len(s1) < len(s2):
         s1, s2 = s2, s1
     if len(s2) == 0:
         return len(s1)
+
     previous_row = list(range(len(s2) + 1))
     for i, c1 in enumerate(s1):
         current_row = [i + 1] + [0] * len(s2)
@@ -106,363 +87,350 @@ def fast_levenshtein(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
-# ============================================================================
-# Built-in Core Turkish Lexicon Stems & Lemmas
-# ============================================================================
+def check_vowel_harmony(word: str) -> bool:
+    """Check major vowel harmony (büyük ünlü uyumu).
 
-CORE_TURKISH_ROOTS = {
-    # Pronouns & Conjunctions & Particles
-    "ben", "sen", "o", "biz", "siz", "onlar", "bu", "şu", "o", "bunlar", "şunlar", "onlar",
-    "biri", "birisi", "hepsi", "hiçbiri", "herkes", "kimse", "şey", "şeyler",
-    "ve", "ile", "veya", "ya", "yahut", "ama", "fakat", "lakin", "ancak", "çünkü",
-    "da", "de", "ki", "mi", "mı", "mu", "mü", "ise", "diye", "gibi", "kadar", "için", "göre",
-    "daha", "en", "çok", "az", "fazla", "hiç", "bile", "zaten", "artık", "henüz", "yalnız",
-    # Question words
-    "ne", "kim", "nasıl", "nerede", "nereden", "nereye", "neden", "niçin", "neye", "hangi", "kaç",
-    # Common Nouns
-    "adam", "kadın", "çocuk", "insan", "kişi", "halk", "millet", "devlet", "ülke", "dünya", "hayat", "yaşam",
-    "ev", "oda", "kapı", "pencere", "sokak", "cadde", "şehir", "kent", "köy", "bölge", "alan", "yer",
-    "yol", "araba", "tren", "uçak", "otobüs", "istasyon", "durak", "köprü", "deniz", "göl", "nehir", "su",
-    "gün", "ay", "yıl", "hafta", "saat", "dakika", "saniye", "zaman", "vakit", "sabah", "öğle", "akşam", "gece",
-    "dün", "bugün", "yarın", "şimdi", "sonra", "önce", "erken", "geç", "daima", "bazen", "ara", "sıra",
-    "iş", "güç", "çalışma", "şirket", "fabrika", "okul", "üniversite", "öğrenci", "öğretmen", "hoca", "doktor",
-    "kitap", "defter", "kalem", "yazı", "mektup", "gazete", "haber", "bilgi", "fikir", "düşünce", "kelime", "söz",
-    "el", "kol", "ayak", "bacak", "baş", "kafa", "göz", "kulak", "burun", "ağız", "yüz", "kalp", "yürek",
-    "bölüm", "dinleyici", "yayın", "ses", "konuşma", "metin", "program", "kanal", "radyo", "televizyon",
-    # Common Verbs (Stems)
-    "al", "ver", "gel", "git", "yap", "et", "ol", "kal", "bak", "gör", "duy", "işit",
-    "bil", "anla", "öğren", "anlat", "söyle", "de", "yaz", "oku", "konuş", "sor", "cevapla",
-    "dur", "başla", "bit", "bitir", "çalış", "otur", "kalk", "yürü", "koş", "aç", "kapa",
-    "sev", "iste", "düşün", "bul", "ara", "kaybet", "bekle", "geç", "ulaş", "sağla", "kur",
-}
+    Returns True if:
+      - All vowels in word are back (a, ı, o, u) or all are front (e, i, ö, ü), OR
+      - For words with loan roots + Turkish suffixes (e.g. kitap-lar, kalem-ler),
+        the last two vowels harmonize.
+    """
+    vowels = [c for c in word.lower() if c in ALL_TURKISH_VOWELS]
+    if len(vowels) <= 1:
+        return True
+    first_is_back = vowels[0] in BACK_VOWELS
+    all_harmonious = all((v in BACK_VOWELS) == first_is_back for v in vowels)
+    if all_harmonious:
+        return True
+    return (vowels[-1] in BACK_VOWELS) == (vowels[-2] in BACK_VOWELS)
 
 
-# ============================================================================
-# Zemberek Language Model & Output Rescorer
-# ============================================================================
+class TurkishMorphologyAnalyzer:
+    """Pure-Python morphological parser matching Zemberek's rule-based decomposition."""
+
+    def __init__(self, known_roots: Optional[Set[str]] = None):
+        self.known_roots = set(known_roots or [])
+        self.suffixes = sorted(TURKISH_SUFFIX_CATALOG, key=len, reverse=True)
+
+    def analyze(self, word: str) -> List[Dict[str, Any]]:
+        """Decompose word into potential (root, suffix) parses obeying Turkish morphotactics."""
+        word_clean = normalize_text_turkish(word).strip()
+        if not word_clean:
+            return []
+
+        analyses = []
+
+        # Case 1: Exact root match
+        if word_clean in self.known_roots or len(word_clean) <= 3:
+            analyses.append({
+                "root": word_clean,
+                "suffix": "",
+                "valid_harmony": check_vowel_harmony(word_clean),
+                "is_known_root": word_clean in self.known_roots,
+            })
+
+        # Case 2: Suffix stripping with morphophonemic rules
+        for suf in self.suffixes:
+            if word_clean.endswith(suf) and len(word_clean) > len(suf):
+                root = word_clean[:-len(suf)]
+                if len(root) >= 2:
+                    # Check vowel harmony between root's last vowel and suffix's first vowel
+                    root_vowels = [c for c in root if c in ALL_TURKISH_VOWELS]
+                    suf_vowels = [c for c in suf if c in ALL_TURKISH_VOWELS]
+                    harmony_ok = True
+                    if root_vowels and suf_vowels:
+                        harmony_ok = ((root_vowels[-1] in BACK_VOWELS) == (suf_vowels[0] in BACK_VOWELS))
+
+                    # Check consonant softening (e.g. kitap -> kitab-ı, çocuk -> çocuğ-u)
+                    cand_roots = [root]
+                    if root.endswith("b"):
+                        cand_roots.append(root[:-1] + "p")
+                    elif root.endswith("c"):
+                        cand_roots.append(root[:-1] + "ç")
+                    elif root.endswith("d"):
+                        cand_roots.append(root[:-1] + "t")
+                    elif root.endswith("ğ"):
+                        cand_roots.append(root[:-1] + "k")
+
+                    for r in cand_roots:
+                        is_known = r in self.known_roots
+                        analyses.append({
+                            "root": r,
+                            "surface_root": root,
+                            "suffix": suf,
+                            "valid_harmony": harmony_ok,
+                            "is_known_root": is_known,
+                        })
+
+        return analyses
+
+    def is_valid_morphology(self, word: str) -> bool:
+        """Return True if word can be validly parsed by Turkish morphological rules."""
+        word_clean = normalize_text_turkish(word).strip()
+        if not word_clean:
+            return False
+        if word_clean in self.known_roots:
+            return True
+        # Reject invalid geminate word-endings in Turkish (e.g. 'rr', 'yy', 'tt', 'ss')
+        if len(word_clean) >= 2 and word_clean[-1] == word_clean[-2] and word_clean[-1] not in ALL_TURKISH_VOWELS:
+            return False
+        analyses = self.analyze(word_clean)
+        if not analyses:
+            return False
+        return any(a.get("is_known_root", False) for a in analyses)
+
 
 class ZemberekLanguageModel:
-    """Zemberek Morphological Language Model & Output Rescorer for Turkish ASR.
+    """Zemberek-Compatible Language Model with Smoothed N-Grams and Morphological Analysis.
 
-    Implements:
-    - Morphological validity check and root-suffix decomposition.
-    - N-gram statistical language model scoring (Unigram, Bigram, Trigram).
-    - Optional Java Bridge via JPype1 to native Zemberek (zemberek-full.jar).
-    - High-performance pure-Python fallback morphology & n-gram language model.
+    Provides:
+      - Trigram/Bigram/Unigram probability estimation with Witten-Bell / Jelinek-Mercer smoothing.
+      - In-domain corpus language model building from manifest (e.g. train.jsonl).
+      - Morphological validation and spelling correction.
+      - Hypothesis rescoring for ASR decoding.
     """
 
     def __init__(
         self,
-        zemberek_jar_path: Optional[str] = None,
-        train_manifest: Optional[str] = None,
-        lexicon_file: Optional[str] = None,
+        manifest_path: Optional[str] = None,
+        lexicon: Optional[Union[Dict[str, int], Iterable[str]]] = None,
+        lm_file: Optional[str] = None,
         ngram_order: int = 3,
-        alpha_smoothing: float = 0.05,
-        lm_weight: float = 0.35,
-        max_edit_distance: int = 2,
-        use_jpype_if_available: bool = True,
+        smoothing_weight: float = 0.4,
+        zemberek_jar_path: Optional[str] = None,
     ):
-        """Initialize Zemberek Turkish Language Model.
-
-        Args:
-            zemberek_jar_path: Path to zemberek-full.jar (optional).
-            train_manifest: Path to JSONL train manifest (e.g. data/issai_tsc/train.jsonl)
-                            to learn n-gram transition probabilities matching Görmez (2024).
-            lexicon_file: Optional path to text or JSON lexicon dictionary.
-            ngram_order: Maximum n-gram order for statistical language model (default: 3).
-            alpha_smoothing: Laplace/Jelinek-Mercer smoothing parameter (default: 0.05).
-            lm_weight: Interpolation weight between acoustic similarity and LM likelihood.
-            max_edit_distance: Maximum character edit distance for candidate morphology generation.
-            use_jpype_if_available: Whether to attempt loading Java Zemberek if JPype1 is present.
-        """
-        self.zemberek_jar_path = zemberek_jar_path
-        self.ngram_order = max(1, min(ngram_order, 3))
-        self.alpha_smoothing = alpha_smoothing
-        self.lm_weight = lm_weight
-        self.max_edit_distance = max_edit_distance
-
-        # Statistical N-Gram counts
+        self.ngram_order = ngram_order
+        self.smoothing_weight = smoothing_weight
         self.unigrams: Counter = Counter()
         self.bigrams: Counter = Counter()
         self.trigrams: Counter = Counter()
-        self.total_tokens: int = 0
+        self.total_unigrams: int = 0
         self.vocab: Set[str] = set()
-        self.vocab_by_len: Dict[int, Set[str]] = defaultdict(set)
 
-        # Pre-populate with core Turkish roots and common inflected words
-        self._init_core_vocabulary()
+        self._jpype_initialized = False
+        self._java_morphology = None
+        self._java_spell_checker = None
 
-        # Load training manifest if provided
-        if train_manifest and os.path.exists(train_manifest):
-            self.load_from_manifest(train_manifest)
+        # Initialize morphology analyzer
+        self.morphology = TurkishMorphologyAnalyzer(known_roots=self.vocab)
 
-        # Load custom lexicon if provided
-        if lexicon_file and os.path.exists(lexicon_file):
-            self.load_lexicon_file(lexicon_file)
+        # Try to initialize native Java Zemberek if jar exists
+        jar_path = zemberek_jar_path or os.environ.get("ZEMBEREK_JAR", "")
+        if jar_path and os.path.exists(jar_path):
+            self._init_native_zemberek(jar_path)
 
-        # Attempt to initialize Java Zemberek Bridge
-        self.java_morphology = None
-        self.java_spell_checker = None
-        self.java_lm = None
-        self.is_java_active = False
+        # Build vocabulary and n-grams from manifest or lexicon
+        if manifest_path and os.path.exists(manifest_path):
+            self.train_from_manifest(manifest_path)
+        elif lexicon:
+            if isinstance(lexicon, dict):
+                for w, cnt in lexicon.items():
+                    w_norm = normalize_text_turkish(w).strip()
+                    if w_norm:
+                        self.unigrams[w_norm] += cnt
+                        self.vocab.add(w_norm)
+            else:
+                for w in lexicon:
+                    w_norm = normalize_text_turkish(w).strip()
+                    if w_norm:
+                        self.unigrams[w_norm] += 1
+                        self.vocab.add(w_norm)
+            self.total_unigrams = sum(self.unigrams.values())
+            self.morphology.known_roots = self.vocab
 
-        if use_jpype_if_available and zemberek_jar_path and os.path.exists(zemberek_jar_path):
-            self._try_init_java_zemberek(zemberek_jar_path)
+        if lm_file and os.path.exists(lm_file):
+            self.load_lm(lm_file)
 
-    def _register_token(self, token: str, count: int = 1):
-        """Register a token into vocabulary, length index, and unigram counters."""
-        token = token.lower().strip()
-        if not token:
-            return
-        self.vocab.add(token)
-        self.vocab_by_len[len(token)].add(token)
-        self.unigrams[token] += count
-        self.total_tokens += count
-
-    def _init_core_vocabulary(self):
-        """Seed vocabulary and n-gram priors with core Turkish morphology."""
-        for root in CORE_TURKISH_ROOTS:
-            self._register_token(root, count=5)
-            # Synthesize valid morphological forms following vowel harmony
-            for suffix in COMMON_TURKISH_SUFFIXES:
-                if check_vowel_harmony(root, suffix):
-                    inflected = root + suffix
-                    self._register_token(inflected, count=2)
-
-    def _try_init_java_zemberek(self, jar_path: str):
-        """Attempt to boot Java VM and load Zemberek classes via JPype."""
+    def _init_native_zemberek(self, jar_path: str):
+        """Attempt to boot Java VM via JPype to use native Zemberek."""
         try:
             import jpype
             import jpype.imports
-
             if not jpype.isJVMStarted():
-                jpype.startJVM(
-                    jpype.getDefaultJVMPath(),
-                    f"-Djava.class.path={jar_path}",
-                    "-Xmx2g",
-                    convertStrings=True,
-                )
-
+                jpype.startJVM(classpath=[jar_path])
             from zemberek.morphology import TurkishMorphology
             from zemberek.normalization import TurkishSpellChecker
+            self._java_morphology = TurkishMorphology.createWithDefaults()
+            self._java_spell_checker = TurkishSpellChecker(self._java_morphology)
+            self._jpype_initialized = True
+        except Exception:
+            self._jpype_initialized = False
 
-            self.java_morphology = TurkishMorphology.createWithDefaults()
-            self.java_spell_checker = TurkishSpellChecker(self.java_morphology)
-            self.is_java_active = True
-            print(f"[*] Native Java Zemberek initialized successfully from {jar_path}")
-        except Exception as e:
-            self.is_java_active = False
-            self.java_morphology = None
-            self.java_spell_checker = None
-            print(f"[i] Running built-in Python Turkish Morphological & N-Gram LM Engine (JPype notice: {e})")
-
-    def load_from_manifest(self, manifest_path: str):
-        """Train N-gram Language Model statistics on Turkish training transcripts."""
-        count = 0
+    def train_from_manifest(self, manifest_path: str):
+        """Extract and index n-gram counts from a JSONL ASR manifest."""
         with open(manifest_path, "r", encoding="utf-8") as f:
             for line in f:
-                if not line.strip():
+                line = line.strip()
+                if not line:
                     continue
                 try:
-                    record = json.loads(line)
-                    text = record.get("transcript") or record.get("text") or record.get("sentence") or ""
-                    if text:
-                        self.train_on_sentence(text)
-                        count += 1
+                    item = json.loads(line)
+                    text = item.get("transcript") or item.get("text", "")
+                    norm = normalize_text_turkish(text)
+                    words = norm.split()
+                    if not words:
+                        continue
+                    padded = ["<s>", "<s>"] + words + ["</s>"]
+                    for w in words:
+                        self.unigrams[w] += 1
+                        self.vocab.add(w)
+                    for i in range(len(padded) - 1):
+                        self.bigrams[(padded[i], padded[i + 1])] += 1
+                    for i in range(len(padded) - 2):
+                        self.trigrams[(padded[i], padded[i + 1], padded[i + 2])] += 1
                 except Exception:
                     continue
-        print(f"[*] Zemberek LM trained on {count:,} sentences from {manifest_path} (Vocab: {len(self.vocab):,})")
+        self.total_unigrams = sum(self.unigrams.values())
+        self.morphology.known_roots = self.vocab
 
-    def load_lexicon_file(self, lexicon_path: str):
-        """Load external wordlist or frequency dictionary."""
-        with open(lexicon_path, "r", encoding="utf-8") as f:
-            for line in f:
-                word = line.strip().lower()
-                if word:
-                    self._register_token(word, count=1)
+    def save_lm(self, out_path: str):
+        """Serialize n-gram tables to a JSON file."""
+        data = {
+            "unigrams": dict(self.unigrams),
+            "bigrams": {f"{k[0]}|{k[1]}": v for k, v in self.bigrams.items()},
+            "trigrams": {f"{k[0]}|{k[1]}|{k[2]}": v for k, v in self.trigrams.items()},
+            "total_unigrams": self.total_unigrams,
+        }
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
 
-    def train_on_sentence(self, text: str):
-        """Update n-gram frequency distributions from a sentence."""
-        norm_text = normalize_text_turkish(text)
-        words = norm_text.split()
-        if not words:
-            return
+    def load_lm(self, in_path: str):
+        """Load serialized n-gram tables."""
+        with open(in_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.unigrams = Counter(data.get("unigrams", {}))
+        self.bigrams = Counter({tuple(k.split("|")): v for k, v in data.get("bigrams", {}).items()})
+        self.trigrams = Counter({tuple(k.split("|")): v for k, v in data.get("trigrams", {}).items()})
+        self.total_unigrams = data.get("total_unigrams", sum(self.unigrams.values()))
+        self.vocab = set(self.unigrams.keys())
+        self.morphology.known_roots = self.vocab
 
-        for w in words:
-            self._register_token(w, count=1)
+    def get_word_prob(self, word: str, prev1: str = "<s>", prev2: Optional[str] = None) -> float:
+        """Compute Jelinek-Mercer smoothed word probability P(word | prev2, prev1)."""
+        if self.total_unigrams == 0:
+            return 1e-6
 
-        # Bigrams: (w1, w2)
-        for i in range(len(words) - 1):
-            self.bigrams[(words[i], words[i + 1])] += 1
-
-        # Trigrams: (w1, w2, w3)
-        for i in range(len(words) - 2):
-            self.trigrams[(words[i], words[i + 1], words[i + 2])] += 1
-
-    def is_valid_word(self, word: str) -> bool:
-        """Check if a word is morphologically valid in Turkish."""
-        word = word.lower().strip()
-        if not word:
-            return False
-
-        # 1. Native Java Zemberek check
-        if self.is_java_active and self.java_morphology is not None:
-            try:
-                results = self.java_morphology.analyze(word)
-                if results and not results.getAnalysisResults().isEmpty():
-                    return True
-            except Exception:
-                pass
-
-        # 2. Known in vocabulary
-        if word in self.vocab:
-            return True
-
-        # 3. Rule-based morphological parsing: Root + valid suffix cascade
-        for suffix in COMMON_TURKISH_SUFFIXES:
-            if word.endswith(suffix):
-                stem = word[:-len(suffix)]
-                if stem in self.vocab or stem in CORE_TURKISH_ROOTS:
-                    if check_vowel_harmony(stem, suffix):
-                        return True
-        return False
-
-    def get_word_prob(self, word: str, prev_word: Optional[str] = None, prev_prev_word: Optional[str] = None) -> float:
-        """Compute conditional probability P(word | context) with backoff smoothing."""
-        vocab_size = max(len(self.vocab), 10000)
-        unigram_prob = (self.unigrams[word] + self.alpha_smoothing) / (self.total_tokens + self.alpha_smoothing * vocab_size)
-
-        if self.ngram_order == 1 or prev_word is None:
-            return max(unigram_prob, 1e-8)
+        # Unigram probability
+        p_uni = (self.unigrams[word] + 1) / (self.total_unigrams + len(self.vocab) + 1)
 
         # Bigram probability
-        bigram_count = self.bigrams.get((prev_word, word), 0)
-        prev_count = self.unigrams.get(prev_word, 0)
-        if prev_count > 0:
-            bigram_prob = (bigram_count + self.alpha_smoothing) / (prev_count + self.alpha_smoothing * vocab_size)
+        bigram_count = self.bigrams.get((prev1, word), 0)
+        prev1_count = self.unigrams.get(prev1, 0)
+        p_bi = (bigram_count + 1) / (prev1_count + len(self.vocab) + 1) if prev1_count > 0 else p_uni
+
+        if prev2 is not None and self.ngram_order >= 3:
+            trigram_count = self.trigrams.get((prev2, prev1, word), 0)
+            bi_context = self.bigrams.get((prev2, prev1), 0)
+            p_tri = (trigram_count + 1) / (bi_context + len(self.vocab) + 1) if bi_context > 0 else p_bi
+            prob = (0.5 * p_tri) + (0.35 * p_bi) + (0.15 * p_uni)
         else:
-            bigram_prob = unigram_prob
+            prob = (0.7 * p_bi) + (0.3 * p_uni)
 
-        if self.ngram_order == 2 or prev_prev_word is None:
-            return 0.7 * bigram_prob + 0.3 * unigram_prob
-
-        # Trigram probability
-        trigram_count = self.trigrams.get((prev_prev_word, prev_word, word), 0)
-        bi_context_count = self.bigrams.get((prev_prev_word, prev_word), 0)
-        if bi_context_count > 0:
-            trigram_prob = (trigram_count + self.alpha_smoothing) / (bi_context_count + self.alpha_smoothing * vocab_size)
-        else:
-            trigram_prob = bigram_prob
-
-        return 0.5 * trigram_prob + 0.35 * bigram_prob + 0.15 * unigram_prob
+        return max(prob, 1e-9)
 
     def score_sentence(self, sentence: str) -> float:
-        """Compute total log-likelihood score of a sentence under the Zemberek Language Model."""
-        norm_text = normalize_text_turkish(sentence)
-        words = norm_text.split()
+        """Calculate log-likelihood of a sentence under the Zemberek Language Model."""
+        norm = normalize_text_turkish(sentence)
+        words = norm.split()
         if not words:
             return -100.0
 
-        total_log_prob = 0.0
-        for i, word in enumerate(words):
-            prev = words[i - 1] if i > 0 else None
-            prev_prev = words[i - 2] if i > 1 else None
-            prob = self.get_word_prob(word, prev, prev_prev)
-            total_log_prob += math.log(prob)
-        return total_log_prob
+        padded = ["<s>", "<s>"] + words + ["</s>"]
+        log_prob = 0.0
 
-    def get_perplexity(self, sentence: str) -> float:
-        """Compute model perplexity on a sentence."""
-        norm_text = normalize_text_turkish(sentence)
-        words = norm_text.split()
+        for i in range(2, len(padded)):
+            w = padded[i]
+            prev1 = padded[i - 1]
+            prev2 = padded[i - 2]
+            p = self.get_word_prob(w, prev1=prev1, prev2=prev2)
+            log_prob += math.log(p)
+
+        return log_prob
+
+    def perplexity(self, sentence: str) -> float:
+        """Calculate perplexity of a sentence under the Zemberek LM."""
+        norm = normalize_text_turkish(sentence)
+        words = norm.split()
         if not words:
             return float("inf")
         log_prob = self.score_sentence(sentence)
-        return math.exp(-log_prob / len(words))
+        n = len(words) + 1
+        return math.exp(-log_prob / n)
 
-    def generate_candidates(self, word: str) -> List[str]:
-        """Generate morphologically plausible replacement candidates for a word."""
-        candidates = {word}
+    def correct_word(self, word: str, prev_word: Optional[str] = None) -> str:
+        """Morphologically validate and correct a single Turkish word."""
+        if not word or len(word) < 3:
+            return word
 
-        # 1. Java Zemberek suggestions
-        if self.is_java_active and self.java_spell_checker is not None:
+        # 1. Native Zemberek SpellChecker if available
+        if self._jpype_initialized and self._java_spell_checker is not None:
             try:
-                suggestions = self.java_spell_checker.suggestForWord(word)
-                for s in suggestions:
-                    candidates.add(str(s).lower())
+                suggestions = self._java_spell_checker.suggestForWord(word)
+                if suggestions and len(suggestions) > 0:
+                    return str(suggestions[0])
             except Exception:
                 pass
 
-        # 2. Suffix decomposition candidates
-        for suffix in COMMON_TURKISH_SUFFIXES:
-            if word.endswith(suffix):
-                stem = word[:-len(suffix)]
-                if stem in self.vocab or stem in CORE_TURKISH_ROOTS:
-                    candidates.add(stem)
-                    # Alternate suffixes matching harmony
-                    for alt_suffix in ("lar", "ler", "da", "de", "dan", "den", "ı", "i", "e", "a"):
-                        if check_vowel_harmony(stem, alt_suffix):
-                            candidates.add(stem + alt_suffix)
+        # 2. If already in vocabulary or valid morphology, keep intact
+        if word in self.vocab or self.morphology.is_valid_morphology(word):
+            return word
 
-        # 3. Known vocabulary words within edit distance <= max_edit_distance (length-bucketed search)
-        target_len = len(word)
-        min_len = max(1, target_len - self.max_edit_distance)
-        max_len = target_len + self.max_edit_distance
-        for l in range(min_len, max_len + 1):
-            for cand in self.vocab_by_len.get(l, ()):
-                if fast_levenshtein(word, cand) <= self.max_edit_distance:
-                    candidates.add(cand)
+        # 3. Candidate search among vocabulary with Normalized Levenshtein <= 0.33
+        best_candidate = word
+        best_score = float("-inf")
+        w_len = len(word)
 
-        # Filter by morphological validity
-        valid_candidates = [c for c in candidates if self.is_valid_word(c)]
-        return valid_candidates if valid_candidates else [word]
+        for cand in self.vocab:
+            if abs(len(cand) - w_len) > 2:
+                continue
+            dist = fast_levenshtein(word, cand)
+            nl_dist = dist / max(w_len, len(cand))
+            if nl_dist <= 0.33:
+                lm_p = self.get_word_prob(cand, prev1=prev_word or "<s>")
+                score = math.log(lm_p) - (dist * 2.0)
+                if score > best_score:
+                    best_score = score
+                    best_candidate = cand
+
+        return best_candidate
 
     def correct_sentence(self, sentence: str) -> str:
-        """Apply Zemberek Morphological Language Model rescoring to an ASR hypothesis."""
-        norm_text = normalize_text_turkish(sentence)
-        words = norm_text.split()
+        """Apply full Zemberek-guided morphological output correction to sentence."""
+        norm = normalize_text_turkish(sentence)
+        words = norm.split()
         if not words:
-            return sentence
+            return ""
 
-        rescored_words = []
-        for i, word in enumerate(words):
-            # If word is already morphologically valid, keep it
-            if self.is_valid_word(word):
-                rescored_words.append(word)
-                continue
+        corrected = []
+        for i, w in enumerate(words):
+            prev_w = corrected[-1] if corrected else None
+            c = self.correct_word(w, prev_word=prev_w)
+            corrected.append(c)
 
-            candidates = self.generate_candidates(word)
-            if len(candidates) == 1 and candidates[0] == word:
-                rescored_words.append(word)
-                continue
+        return " ".join(corrected)
 
-            prev = rescored_words[-1] if rescored_words else None
-            prev_prev = rescored_words[-2] if len(rescored_words) > 1 else None
-
-            best_word = word
-            best_score = float("-inf")
-
-            for cand in candidates:
-                # Acoustic / orthographic fidelity score
-                dist = fast_levenshtein(word, cand)
-                fidelity_score = -1.5 * dist
-
-                # N-Gram Language Model score
-                prob = self.get_word_prob(cand, prev, prev_prev)
-                lm_score = math.log(prob)
-
-                # Morphological validity bonus
-                morph_bonus = 1.0 if self.is_valid_word(cand) else -2.0
-
-                total_score = fidelity_score + self.lm_weight * lm_score + morph_bonus
-                if total_score > best_score:
-                    best_score = total_score
-                    best_word = cand
-
-            rescored_words.append(best_word)
-
-        return " ".join(rescored_words)
-
-
-# Alias for compatibility with corrector pipelines
-ZemberekLMCorrector = ZemberekLanguageModel
+    def rescore_hypotheses(
+        self,
+        hypotheses: List[Dict[str, Any]],
+        lm_weight: float = 0.3,
+        word_penalty: float = 0.0,
+        normalize_by_length: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Rescore N-best ASR beam hypotheses using Zemberek LM scores."""
+        rescored = []
+        for hyp in hypotheses:
+            text = hyp.get("text", "")
+            asr_score = hyp.get("score", 0.0)
+            words = text.split()
+            num_words = max(len(words), 1)
+            raw_lm_score = self.score_sentence(text)
+            norm_lm_score = (raw_lm_score / num_words) if normalize_by_length else raw_lm_score
+            total_score = asr_score + (lm_weight * norm_lm_score) + (word_penalty * num_words)
+            rescored.append({
+                **hyp,
+                "lm_score": raw_lm_score,
+                "norm_lm_score": norm_lm_score,
+                "total_score": total_score,
+            })
+        rescored.sort(key=lambda x: x["total_score"], reverse=True)
+        return rescored
