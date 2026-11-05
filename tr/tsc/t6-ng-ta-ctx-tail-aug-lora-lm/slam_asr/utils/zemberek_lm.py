@@ -187,6 +187,7 @@ class ZemberekLanguageModel:
         self.trigrams: Counter = Counter()
         self.total_tokens: int = 0
         self.vocab: Set[str] = set()
+        self.vocab_by_len: Dict[int, Set[str]] = defaultdict(set)
 
         # Pre-populate with core Turkish roots and common inflected words
         self._init_core_vocabulary()
@@ -208,18 +209,25 @@ class ZemberekLanguageModel:
         if use_jpype_if_available and zemberek_jar_path and os.path.exists(zemberek_jar_path):
             self._try_init_java_zemberek(zemberek_jar_path)
 
+    def _register_token(self, token: str, count: int = 1):
+        """Register a token into vocabulary, length index, and unigram counters."""
+        token = token.lower().strip()
+        if not token:
+            return
+        self.vocab.add(token)
+        self.vocab_by_len[len(token)].add(token)
+        self.unigrams[token] += count
+        self.total_tokens += count
+
     def _init_core_vocabulary(self):
         """Seed vocabulary and n-gram priors with core Turkish morphology."""
         for root in CORE_TURKISH_ROOTS:
-            self.vocab.add(root)
-            self.unigrams[root] += 5
+            self._register_token(root, count=5)
             # Synthesize valid morphological forms following vowel harmony
             for suffix in COMMON_TURKISH_SUFFIXES:
                 if check_vowel_harmony(root, suffix):
                     inflected = root + suffix
-                    self.vocab.add(inflected)
-                    self.unigrams[inflected] += 2
-        self.total_tokens = sum(self.unigrams.values())
+                    self._register_token(inflected, count=2)
 
     def _try_init_java_zemberek(self, jar_path: str):
         """Attempt to boot Java VM and load Zemberek classes via JPype."""
@@ -271,9 +279,7 @@ class ZemberekLanguageModel:
             for line in f:
                 word = line.strip().lower()
                 if word:
-                    self.vocab.add(word)
-                    self.unigrams[word] += 1
-        self.total_tokens = sum(self.unigrams.values())
+                    self._register_token(word, count=1)
 
     def train_on_sentence(self, text: str):
         """Update n-gram frequency distributions from a sentence."""
@@ -283,9 +289,7 @@ class ZemberekLanguageModel:
             return
 
         for w in words:
-            self.vocab.add(w)
-            self.unigrams[w] += 1
-            self.total_tokens += 1
+            self._register_token(w, count=1)
 
         # Bigrams: (w1, w2)
         for i in range(len(words) - 1):
@@ -400,12 +404,13 @@ class ZemberekLanguageModel:
                         if check_vowel_harmony(stem, alt_suffix):
                             candidates.add(stem + alt_suffix)
 
-        # 3. Known vocabulary words within edit distance <= max_edit_distance
+        # 3. Known vocabulary words within edit distance <= max_edit_distance (length-bucketed search)
         target_len = len(word)
-        for cand in self.vocab:
-            if abs(len(cand) - target_len) <= self.max_edit_distance:
-                dist = fast_levenshtein(word, cand)
-                if dist <= self.max_edit_distance:
+        min_len = max(1, target_len - self.max_edit_distance)
+        max_len = target_len + self.max_edit_distance
+        for l in range(min_len, max_len + 1):
+            for cand in self.vocab_by_len.get(l, ()):
+                if fast_levenshtein(word, cand) <= self.max_edit_distance:
                     candidates.add(cand)
 
         # Filter by morphological validity
@@ -421,8 +426,8 @@ class ZemberekLanguageModel:
 
         rescored_words = []
         for i, word in enumerate(words):
-            # If word is already valid and high frequency, keep it
-            if self.is_valid_word(word) and self.unigrams.get(word, 0) > 1:
+            # If word is already morphologically valid, keep it
+            if self.is_valid_word(word):
                 rescored_words.append(word)
                 continue
 

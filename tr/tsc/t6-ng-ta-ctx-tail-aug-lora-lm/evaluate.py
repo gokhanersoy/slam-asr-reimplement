@@ -47,36 +47,86 @@ def load_yaml_config(path: str) -> dict:
 
 def find_checkpoint(specified_path: str) -> str:
     """Resolve checkpoint file with fallback search if specified path does not exist."""
-    if os.path.exists(specified_path):
+    import glob
+    import re
+
+    if specified_path and os.path.exists(specified_path):
         if os.path.isdir(specified_path):
             proj_file = os.path.join(specified_path, "projector.pt")
             if os.path.exists(proj_file):
                 return proj_file
         return specified_path
 
-    # Try common alternatives
-    candidates = [
+    # Try common local alternatives
+    local_candidates = [
         specified_path,
-        os.path.join(specified_path, "projector.pt"),
+        os.path.join(specified_path, "projector.pt") if specified_path else "",
         "outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint",
         "outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint/projector.pt",
+        "outputs/slam_asr_turkish_adaptive_t6_lm/final_checkpoint",
+        "outputs/slam_asr_turkish_adaptive_t6_lm/final_checkpoint/projector.pt",
         "outputs/slam_asr_turkish_adaptive/best_checkpoint",
         "outputs/slam_asr_turkish_adaptive/best_checkpoint/projector.pt",
+        "outputs/slam_asr_turkish_adaptive/final_checkpoint",
+        "outputs/slam_asr_turkish_adaptive/final_checkpoint/projector.pt",
         "outputs/slam_asr_turkish_colab_t6_lm/best_checkpoint",
         "outputs/slam_asr_turkish_colab_t6_lm/best_checkpoint/projector.pt",
         "outputs/slam_asr_turkish_colab/best_checkpoint",
         "outputs/slam_asr_turkish_colab/best_checkpoint/projector.pt",
-        "/content/drive/MyDrive/outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint",
-        "/content/drive/MyDrive/outputs/slam_asr_turkish_adaptive/best_checkpoint",
     ]
-    for cand in candidates:
-        if os.path.exists(cand):
+    for cand in local_candidates:
+        if cand and os.path.exists(cand):
             target = os.path.join(cand, "projector.pt") if os.path.isdir(cand) else cand
             if os.path.exists(target):
-                print(f"[*] Checkpoint '{specified_path}' not found, automatically using: '{target}'")
+                print(f"[*] Checkpoint '{specified_path}' not found, automatically using local: '{target}'")
                 return target
 
-    raise FileNotFoundError(f"Checkpoint not found at '{specified_path}'. Please check that the checkpoint path is correct.")
+    # Try Google Drive checkpoints (t6, t5, or other tsc checkpoints sorted by timestamp)
+    drive_ckpts = sorted(
+        glob.glob("/content/drive/MyDrive/checkpoints/*slam_asr_tr_tsc*/best_checkpoint") +
+        glob.glob("/content/drive/MyDrive/checkpoints/*slam_asr_tr_tsc*/final_checkpoint"),
+        key=lambda p: (re.search(r"(\d{8}_\d{6})", p).group(1) if re.search(r"(\d{8}_\d{6})", p) else "", p)
+    )
+    for d_cand in reversed(drive_ckpts):
+        target = os.path.join(d_cand, "projector.pt") if os.path.isdir(d_cand) else d_cand
+        if os.path.exists(target):
+            print(f"[*] Checkpoint '{specified_path}' not found, automatically found in Google Drive: '{target}'")
+            return target
+
+    raise FileNotFoundError(
+        f"Checkpoint not found at '{specified_path}'.\n"
+        f"Lütfen önce 6. adımı çalıştırarak modeli eğitin veya Google Drive'da kayıtlı checkpoint yolunu kontrol edin."
+    )
+
+
+def resolve_manifest(specified_manifest: str, default_manifest: str) -> str:
+    """Resolve test manifest path with fallback to Google Drive or sample validation data."""
+    import glob
+    import re
+
+    path = specified_manifest or default_manifest
+    if path and os.path.exists(path):
+        return path
+
+    # Check Google Drive backup manifests
+    drive_manifests = sorted(
+        glob.glob("/content/drive/MyDrive/checkpoints/*slam_asr_tr_tsc*/manifests/test.jsonl"),
+        key=lambda p: (re.search(r"(\d{8}_\d{6})", p).group(1) if re.search(r"(\d{8}_\d{6})", p) else "", p)
+    )
+    if drive_manifests and os.path.exists(drive_manifests[-1]):
+        print(f"[*] Test manifest not found at '{path}', automatically using Google Drive manifest: '{drive_manifests[-1]}'")
+        return drive_manifests[-1]
+
+    # Check local sample validation manifest
+    sample_manifest = "data/sample_val_tr.jsonl"
+    if os.path.exists(sample_manifest):
+        print(f"[*] Test manifest not found at '{path}', fallback to sample validation data: '{sample_manifest}'")
+        return sample_manifest
+
+    raise FileNotFoundError(
+        f"Test manifest not found at: '{path}'.\n"
+        f"Lütfen 5. adımı çalıştırarak ISSAI TSC veri setini hazırlayın veya geçerli bir test manifestosu yolu belirtin."
+    )
 
 
 def main():
@@ -86,6 +136,13 @@ def main():
     model_cfg_dict = cfg.get("model", {})
     data_cfg = cfg.get("data", {})
     lm_cfg = cfg.get("lm", {})
+
+    # EARLY VALIDATION: Resolve checkpoint and test manifest BEFORE loading heavy models
+    ckpt_path = find_checkpoint(args.checkpoint)
+    test_manifest = resolve_manifest(args.manifest, data_cfg.get("test_manifest"))
+
+    print(f"[*] Resolved Checkpoint: {ckpt_path}")
+    print(f"[*] Resolved Test Manifest: {test_manifest}")
 
     # Resolve hardware-aware hyperparameters if auto
     model_cfg_dict, data_cfg, _ = resolve_auto_hyperparameters(
@@ -110,8 +167,7 @@ def main():
         model.speech_encoder = model.speech_encoder.to(device)
         model.projector = model.projector.to(device)
 
-    # Resolve checkpoint path
-    ckpt_path = find_checkpoint(args.checkpoint)
+    # Load projector weights
     print(f"[*] Loading projector weights from: {ckpt_path}")
     state_dict = torch.load(ckpt_path, map_location=device)
     model.projector.load_state_dict(state_dict)
