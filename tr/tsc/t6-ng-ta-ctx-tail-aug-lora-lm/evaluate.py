@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI entrypoint for evaluating SLAM-ASR t6-ng-ta-ctx-tail-aug-lora-lm on test benchmarks."""
+"""CLI entrypoint for evaluating SLAM-ASR models (t6-ng-ta-ctx-tail-aug-lora-lm) on test benchmarks."""
 
 import argparse
 import json
@@ -45,6 +45,40 @@ def load_yaml_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def find_checkpoint(specified_path: str) -> str:
+    """Resolve checkpoint file with fallback search if specified path does not exist."""
+    if os.path.exists(specified_path):
+        if os.path.isdir(specified_path):
+            proj_file = os.path.join(specified_path, "projector.pt")
+            if os.path.exists(proj_file):
+                return proj_file
+        return specified_path
+
+    # Try common alternatives
+    candidates = [
+        specified_path,
+        os.path.join(specified_path, "projector.pt"),
+        "outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint",
+        "outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint/projector.pt",
+        "outputs/slam_asr_turkish_adaptive/best_checkpoint",
+        "outputs/slam_asr_turkish_adaptive/best_checkpoint/projector.pt",
+        "outputs/slam_asr_turkish_colab_t6_lm/best_checkpoint",
+        "outputs/slam_asr_turkish_colab_t6_lm/best_checkpoint/projector.pt",
+        "outputs/slam_asr_turkish_colab/best_checkpoint",
+        "outputs/slam_asr_turkish_colab/best_checkpoint/projector.pt",
+        "/content/drive/MyDrive/outputs/slam_asr_turkish_adaptive_t6_lm/best_checkpoint",
+        "/content/drive/MyDrive/outputs/slam_asr_turkish_adaptive/best_checkpoint",
+    ]
+    for cand in candidates:
+        if os.path.exists(cand):
+            target = os.path.join(cand, "projector.pt") if os.path.isdir(cand) else cand
+            if os.path.exists(target):
+                print(f"[*] Checkpoint '{specified_path}' not found, automatically using: '{target}'")
+                return target
+
+    raise FileNotFoundError(f"Checkpoint not found at '{specified_path}'. Please check that the checkpoint path is correct.")
+
+
 def main():
     args = parse_args()
     cfg = load_yaml_config(args.config)
@@ -76,20 +110,14 @@ def main():
         model.speech_encoder = model.speech_encoder.to(device)
         model.projector = model.projector.to(device)
 
-    # Load projector checkpoint
-    ckpt_path = args.checkpoint
-    if os.path.isdir(ckpt_path):
-        ckpt_path = os.path.join(ckpt_path, "projector.pt")
-
-    if not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"Projector checkpoint not found at: {ckpt_path}")
-
+    # Resolve checkpoint path
+    ckpt_path = find_checkpoint(args.checkpoint)
     print(f"[*] Loading projector weights from: {ckpt_path}")
     state_dict = torch.load(ckpt_path, map_location=device)
     model.projector.load_state_dict(state_dict)
 
     # Check for trained LoRA adapter in checkpoint directory
-    ckpt_dir = args.checkpoint if os.path.isdir(args.checkpoint) else os.path.dirname(args.checkpoint)
+    ckpt_dir = os.path.dirname(ckpt_path) if ckpt_path.endswith(".pt") else ckpt_path
     lora_dir = os.path.join(ckpt_dir, "lora_adapter")
     if os.path.exists(lora_dir) and os.path.exists(os.path.join(lora_dir, "adapter_config.json")):
         try:
@@ -109,34 +137,27 @@ def main():
     is_whisper = data_cfg.get("is_whisper", False)
     audio_processor = AudioProcessor(
         sampling_rate=data_cfg.get("sampling_rate", 16000),
+        normalize=data_cfg.get("normalize", False),
         is_whisper=is_whisper,
-        whisper_mel_bins=data_cfg.get("whisper_mel_bins", 128),
+        whisper_mel_bins=data_cfg.get("whisper_mel_bins", 128 if is_whisper else 80),
     )
 
     test_manifest = args.manifest or data_cfg.get("test_manifest")
     if not test_manifest or not os.path.exists(test_manifest):
-        raise FileNotFoundError(f"Test manifest not found: {test_manifest}")
+        raise FileNotFoundError(f"Test manifest not found at: {test_manifest}")
 
     test_dataset = ASRDataset(
-        manifest_path=test_manifest,
+        data_source=test_manifest,
         audio_processor=audio_processor,
-        tokenizer=model.tokenizer,
-        default_prompt=model_config.default_prompt,
-        user_prefix=model_config.user_prefix,
-        assistant_prefix=model_config.assistant_prefix,
+        prompt=model_config.default_prompt,
     )
-
-    collator = ASRDataCollator(
-        pad_token_id=model.tokenizer.pad_token_id or 0,
-        is_whisper=is_whisper,
-    )
-
-    dataloader = DataLoader(
+    collator = ASRDataCollator(is_whisper=is_whisper)
+    test_loader = DataLoader(
         test_dataset,
         batch_size=eval_batch_size,
         shuffle=False,
-        num_workers=data_cfg.get("num_workers", 2),
         collate_fn=collator,
+        num_workers=data_cfg.get("num_workers", 2),
     )
 
     hypotheses = []
@@ -165,27 +186,36 @@ def main():
     model_dtype_str = getattr(model_config, "dtype", None) or getattr(model_config, "torch_dtype", "float32")
     use_amp = (model_dtype_str in ("float16", "bfloat16")) and device.type == "cuda"
     amp_dtype = torch.bfloat16 if model_dtype_str == "bfloat16" else torch.float16
+    autocast_ctx = (
+        (lambda: torch.amp.autocast("cuda", dtype=amp_dtype))
+        if hasattr(torch, "amp") and hasattr(torch.amp, "autocast")
+        else (lambda: torch.cuda.amp.autocast(dtype=amp_dtype))
+    )
 
-    print(f"[*] Evaluating on: {test_manifest} ({len(test_dataset)} utterances)...")
+    print(f"[*] Evaluating {len(test_dataset)} samples with beam_size={args.beam_size}...")
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating"):
-            speech_values = batch["speech_values"].to(device)
-            speech_lengths = batch["speech_lengths"].to(device)
+        for batch in tqdm(test_loader, desc="Evaluating"):
+            speech_inputs = batch["speech_inputs"].to(device)
+            speech_mask = (
+                batch["speech_attention_mask"].to(device)
+                if batch["speech_attention_mask"] is not None
+                else None
+            )
 
             if use_amp:
-                with torch.autocast(device_type="cuda", dtype=amp_dtype):
+                with autocast_ctx():
                     preds = model.generate(
-                        speech_values=speech_values,
-                        speech_lengths=speech_lengths,
+                        speech_inputs=speech_inputs,
+                        speech_attention_mask=speech_mask,
                         prompts=batch["prompts"],
-                        beam_size=args.beam_size,
+                        num_beams=args.beam_size,
                     )
             else:
                 preds = model.generate(
-                    speech_values=speech_values,
-                    speech_lengths=speech_lengths,
+                    speech_inputs=speech_inputs,
+                    speech_attention_mask=speech_mask,
                     prompts=batch["prompts"],
-                    beam_size=args.beam_size,
+                    num_beams=args.beam_size,
                 )
 
             for key, pred, ref in zip(batch["keys"], preds, batch["transcripts"]):
