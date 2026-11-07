@@ -79,6 +79,19 @@ class ASRDataset(Dataset):
             # Hugging Face Audio feature dict
             audio_tensor = self.audio_processor.process(audio_source["array"])
         else:
+            if isinstance(audio_source, str) and not os.path.exists(audio_source) and not audio_source.startswith("http"):
+                basename = os.path.basename(audio_source)
+                candidate_paths = [
+                    os.path.join("data/toy_audio_tr", basename),
+                    os.path.join("data", basename),
+                    os.path.join("toy_audio_tr", basename),
+                    os.path.join("../data/toy_audio_tr", basename),
+                    os.path.join("/content/slam-asr-reimplement/champion-with-zemberek/data/toy_audio_tr", basename),
+                ]
+                for cp in candidate_paths:
+                    if os.path.exists(cp):
+                        audio_source = cp
+                        break
             audio_tensor = self.audio_processor.process(audio_source)
 
         # Extract target text

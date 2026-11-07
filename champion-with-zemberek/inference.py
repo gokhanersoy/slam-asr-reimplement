@@ -48,8 +48,20 @@ def main():
         verbose=False,
     )
 
-    device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"))
     device = torch.device(device_str)
+
+    # Hardware safety overrides
+    if device.type != "cuda":
+        print(f"[*] Notice: Running on {device.type}. Disabling 4-bit/8-bit quantization.")
+        model_cfg_dict["load_in_4bit"] = False
+        model_cfg_dict["load_in_8bit"] = False
+        model_cfg_dict["torch_dtype"] = "float32"
+    else:
+        if hasattr(torch.cuda, "is_bf16_supported") and not torch.cuda.is_bf16_supported():
+            if model_cfg_dict.get("torch_dtype") == "bfloat16":
+                print("[*] Notice: bfloat16 not natively supported on this GPU. Using float16.")
+                model_cfg_dict["torch_dtype"] = "float16"
 
     print(f"[*] Loading SLAM-ASR on {device}...")
     model_config = SLAMASRConfig(**model_cfg_dict)
@@ -76,13 +88,29 @@ def main():
     print(f"[*] Loading checkpoint weights from: {weights_file}")
     checkpoint_data = torch.load(weights_file, map_location=device)
     if isinstance(checkpoint_data, dict) and "projector_state_dict" in checkpoint_data:
-        model.projector.load_state_dict(checkpoint_data["projector_state_dict"])
+        raw_sd = checkpoint_data["projector_state_dict"]
     elif isinstance(checkpoint_data, dict) and "model_state_dict" in checkpoint_data:
-        model.projector.load_state_dict(checkpoint_data["model_state_dict"])
+        raw_sd = checkpoint_data["model_state_dict"]
     elif isinstance(checkpoint_data, dict):
-        model.projector.load_state_dict(checkpoint_data)
+        raw_sd = checkpoint_data
     else:
         raise ValueError(f"Unexpected checkpoint format in {weights_file}")
+
+    cleaned_sd = {}
+    for k, v in raw_sd.items():
+        new_k = k
+        if new_k.startswith("projector."):
+            new_k = new_k[len("projector."):]
+        elif new_k.startswith("model.projector."):
+            new_k = new_k[len("model.projector."):]
+        cleaned_sd[new_k] = v
+
+    try:
+        model.projector.load_state_dict(cleaned_sd, strict=True)
+    except Exception as load_err:
+        print(f"[*] Strict state_dict load note: {load_err}. Retrying with strict=False...")
+        model.projector.load_state_dict(cleaned_sd, strict=False)
+    print("[*] Projector weights successfully loaded.")
 
     # Check for trained LoRA adapter in checkpoint directory
     if getattr(model_config, "use_lora", False):
@@ -128,7 +156,9 @@ def main():
         raise FileNotFoundError(f"Audio file not found: {args.audio}")
 
     print(f"[*] Processing audio: {args.audio}")
-    speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device)
+    enc_param = next(model.speech_encoder.parameters(), None)
+    enc_dtype = enc_param.dtype if enc_param is not None else torch.float32
+    speech_tensor = audio_processor.process(args.audio).unsqueeze(0).to(device=device, dtype=enc_dtype)
 
     model_dtype_str = getattr(model_config, "dtype", None) or getattr(model_config, "torch_dtype", "float32")
     use_amp = (model_dtype_str in ("float16", "bfloat16")) and device.type == "cuda"

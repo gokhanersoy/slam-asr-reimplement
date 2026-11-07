@@ -104,6 +104,14 @@ class SpeechEncoderWrapper(nn.Module):
         # If encoder is frozen, compute under torch.no_grad() when model is in train mode
         context = torch.no_grad() if (self.freeze_encoder and not self.training) else torch.enable_grad()
 
+        # Ensure input tensor dtype matches encoder parameter dtype (e.g. float32 vs float16)
+        try:
+            encoder_param = next(self.encoder.parameters(), None)
+            if encoder_param is not None and input_values.dtype != encoder_param.dtype:
+                input_values = input_values.to(dtype=encoder_param.dtype)
+        except Exception:
+            pass
+
         with context:
             if self.encoder_type == "whisper":
                 # input_values: (batch, 80/128, 3000)

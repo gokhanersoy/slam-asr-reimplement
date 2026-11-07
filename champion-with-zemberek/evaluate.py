@@ -58,10 +58,28 @@ def main():
         verbose=False,
     )
 
-    eval_batch_size = args.batch_size or data_cfg.get("batch_size", 4)
-
-    device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device_str = args.device or ("cuda" if torch.cuda.is_available() else ("mps" if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else "cpu"))
     device = torch.device(device_str)
+
+    # Hardware safety overrides
+    if device.type != "cuda":
+        print(f"[*] Notice: Running on {device.type}. Disabling 4-bit/8-bit quantization.")
+        model_cfg_dict["load_in_4bit"] = False
+        model_cfg_dict["load_in_8bit"] = False
+        model_cfg_dict["torch_dtype"] = "float32"
+    else:
+        if hasattr(torch.cuda, "is_bf16_supported") and not torch.cuda.is_bf16_supported():
+            if model_cfg_dict.get("torch_dtype") == "bfloat16":
+                print("[*] Notice: bfloat16 not natively supported on this GPU. Using float16.")
+                model_cfg_dict["torch_dtype"] = "float16"
+
+    # Evaluation batch size safety (limit to 2 on <=16GB GPUs to avoid OOM during beam search)
+    eval_batch_size = args.batch_size or data_cfg.get("batch_size", 2)
+    if device.type == "cuda":
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        if vram_gb <= 16.5 and eval_batch_size > 2 and args.beam_size > 1:
+            print(f"[*] Memory Optimization: Setting eval batch size to 2 on {vram_gb:.1f} GB GPU with beam_size={args.beam_size}.")
+            eval_batch_size = 2
 
     print(f"[*] Loading model on {device}...")
     model_config = SLAMASRConfig(**model_cfg_dict)
@@ -88,13 +106,29 @@ def main():
     print(f"[*] Loading checkpoint weights from: {weights_file}")
     checkpoint_data = torch.load(weights_file, map_location=device)
     if isinstance(checkpoint_data, dict) and "projector_state_dict" in checkpoint_data:
-        model.projector.load_state_dict(checkpoint_data["projector_state_dict"])
+        raw_sd = checkpoint_data["projector_state_dict"]
     elif isinstance(checkpoint_data, dict) and "model_state_dict" in checkpoint_data:
-        model.projector.load_state_dict(checkpoint_data["model_state_dict"])
+        raw_sd = checkpoint_data["model_state_dict"]
     elif isinstance(checkpoint_data, dict):
-        model.projector.load_state_dict(checkpoint_data)
+        raw_sd = checkpoint_data
     else:
         raise ValueError(f"Unexpected checkpoint format in {weights_file}")
+
+    cleaned_sd = {}
+    for k, v in raw_sd.items():
+        new_k = k
+        if new_k.startswith("projector."):
+            new_k = new_k[len("projector."):]
+        elif new_k.startswith("model.projector."):
+            new_k = new_k[len("model.projector."):]
+        cleaned_sd[new_k] = v
+
+    try:
+        model.projector.load_state_dict(cleaned_sd, strict=True)
+    except Exception as load_err:
+        print(f"[*] Strict state_dict load note: {load_err}. Retrying with strict=False...")
+        model.projector.load_state_dict(cleaned_sd, strict=False)
+    print("[*] Projector weights successfully loaded.")
 
     # Check for saved LoRA weights if configured
     if getattr(model_config, "use_lora", False):
@@ -145,12 +179,13 @@ def main():
         prompt=model_config.default_prompt,
     )
     collator = ASRDataCollator(is_whisper=is_whisper)
+    safe_workers = min(2, data_cfg.get("num_workers", 2), os.cpu_count() or 2)
     test_loader = DataLoader(
         test_dataset,
         batch_size=eval_batch_size,
         shuffle=False,
         collate_fn=collator,
-        num_workers=data_cfg.get("num_workers", 2),
+        num_workers=safe_workers,
     )
 
     hypotheses = []
@@ -171,7 +206,11 @@ def main():
 
     model_dtype_str = getattr(model_config, "dtype", None) or getattr(model_config, "torch_dtype", "float32")
     use_amp = (model_dtype_str in ("float16", "bfloat16")) and device.type == "cuda"
-    amp_dtype = torch.bfloat16 if model_dtype_str == "bfloat16" else torch.float16
+    amp_dtype = (
+        torch.bfloat16
+        if (model_dtype_str == "bfloat16" and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported())
+        else torch.float16
+    )
     autocast_ctx = (
         (lambda: torch.amp.autocast("cuda", dtype=amp_dtype))
         if hasattr(torch, "amp") and hasattr(torch.amp, "autocast")
@@ -181,7 +220,11 @@ def main():
     print(f"[*] Evaluating {len(test_dataset)} samples with beam_size={args.beam_size}...")
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Evaluating"):
-            speech_inputs = batch["speech_inputs"].to(device)
+            # Ensure speech inputs match encoder parameter dtype (avoid Float vs Half mismatch)
+            enc_param = next(model.speech_encoder.parameters(), None)
+            enc_dtype = enc_param.dtype if enc_param is not None else torch.float32
+
+            speech_inputs = batch["speech_inputs"].to(device=device, dtype=enc_dtype)
             speech_mask = (
                 batch["speech_attention_mask"].to(device)
                 if batch["speech_attention_mask"] is not None

@@ -242,6 +242,14 @@ class SLAM_ASR(nn.Module):
             speech_embeds: (batch_size, downsampled_frames, llm_dim)
             speech_mask: (batch_size, downsampled_frames) or None
         """
+        # Ensure speech_inputs matches speech_encoder parameter dtype
+        try:
+            enc_param = next(self.speech_encoder.parameters(), None)
+            if enc_param is not None and speech_inputs.dtype != enc_param.dtype:
+                speech_inputs = speech_inputs.to(dtype=enc_param.dtype)
+        except Exception:
+            pass
+
         if self.config.freeze_encoder:
             with torch.no_grad():
                 features, mask = self.speech_encoder(speech_inputs, speech_attention_mask)
