@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slam-asr-champion-with-zemberek"
+version = "0.1.0"
+description = "SLAM-ASR Champion Model (t5) with Zemberek Language Model Integration for Turkish ASR"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.28.0",
+    "peft>=0.7.0",
+    "bitsandbytes>=0.41.0",
+    "soundfile>=0.12.0",
+    "librosa>=0.10.0",
+    "jiwer>=3.0.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["slam_asr*"]
