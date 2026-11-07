@@ -207,15 +207,6 @@ class SLAM_ASR(nn.Module):
         return [p for p in self.parameters() if p.requires_grad]
 
     @property
-    def llm(self):
-        """Convenience property alias for language_model."""
-        return self.language_model
-
-    @llm.setter
-    def llm(self, value):
-        self.language_model = value
-
-    @property
     def llm_dtype(self) -> torch.dtype:
         """Get the expected computation dtype for the LLM inputs."""
         if hasattr(self.language_model, "dtype") and self.language_model.dtype not in (torch.int8, torch.uint8):
@@ -242,14 +233,6 @@ class SLAM_ASR(nn.Module):
             speech_embeds: (batch_size, downsampled_frames, llm_dim)
             speech_mask: (batch_size, downsampled_frames) or None
         """
-        # Ensure speech_inputs matches speech_encoder parameter dtype
-        try:
-            enc_param = next(self.speech_encoder.parameters(), None)
-            if enc_param is not None and speech_inputs.dtype != enc_param.dtype:
-                speech_inputs = speech_inputs.to(dtype=enc_param.dtype)
-        except Exception:
-            pass
-
         if self.config.freeze_encoder:
             with torch.no_grad():
                 features, mask = self.speech_encoder(speech_inputs, speech_attention_mask)
